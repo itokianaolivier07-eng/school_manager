@@ -32,7 +32,7 @@ def save_receipt_pdf(parent, services, payment_id):
     if not path:
         return
     esc = html.escape
-    what = "Frais d'inscription" if d["kind"] == "registration" else f"Écolage de {school.MONTH_NAMES[d['month']]}"
+    what = school.FEE_ITEM_LABELS[d["fee_code"]]
     cancelled = "<p style='color:#b91c1c'><b>PAIEMENT ANNULÉ</b></p>" if d["cancelled"] else ""
     doc = QTextDocument()
     doc.setHtml(f"""
@@ -144,12 +144,11 @@ class CollectTab(QWidget):
         if self.student_id is None:
             return QMessageBox.information(self, "Écolage", "Sélectionnez d'abord un élève.")
         cur = self.rows[self.table.currentRow()] if 0 <= self.table.currentRow() < len(self.rows) else None
-        initial = {"kind": cur["kind"] if cur else "monthly", "month": cur["month"] if cur else None,
+        initial = {"fee_code": cur["fee_code"] if cur else school.MONTH_FEE_CODES[school.SCHOOL_MONTHS[0]],
                    "amount": cur["balance"] if cur else 0, "method": "cash"}
         fields = [
-            Field("kind", "Type", "combo", required=True, choices=lambda: [(v, k) for k, v in school.KINDS.items()]),
-            Field("month", "Mois (écolage)", "combo",
-                  choices=lambda: [(school.MONTH_NAMES[m], m) for m in school.SCHOOL_MONTHS]),
+            Field("fee_code", "Poste", "combo", required=True,
+                  choices=lambda: [(school.FEE_ITEM_LABELS[k], k) for k in school.FEE_ITEM_CODES]),
             Field("amount", "Montant (Ar)", "number", required=True, minimum=0, maximum=school.MAX_AMOUNT,
                   decimals=0, step=1000),
             Field("method", "Mode de paiement", "combo", required=True,
@@ -238,8 +237,8 @@ class FeesView(QWidget):
         self.tabs.addTab(self.arrears, "Impayés")
 
         pay_cols = [("receipt_no", "Reçu"), ("paid_at", "Date"), ("matricule", "Matricule"),
-                    ("student_name", "Élève"), ("kind", "Objet", school.KINDS),
-                    ("month", "Mois", school.MONTH_NAMES), ("amount", "Montant (Ar)"),
+                    ("student_name", "Élève"), ("fee_code", "Poste", school.FEE_ITEM_LABELS),
+                    ("amount", "Montant (Ar)"),
                     ("method", "Mode", school.METHODS), ("cancelled", "État", {0: "", 1: "Annulé"})]
 
         def selected_payment(view):
@@ -268,16 +267,27 @@ class FeesView(QWidget):
                                                ("Annuler le paiement", cancel, "payments.cancel")])
         self.tabs.addTab(self.history, "Historique")
         if ctx.session.can("fees.read"):
-            cols = [("level", "Niveau"), ("school_year", "Année"), ("monthly_amount", "Écolage mensuel (Ar)"),
-                    ("registration_fee", "Inscription (Ar)")]
-            fields = [Field("level", "Niveau", "combo", required=True, choices=lambda: [(l, l) for l in school.LEVELS]),
-                      Field("school_year", "Année scolaire (AAAA-AAAA)", required=True, max_len=9),
-                      Field("monthly_amount", "Écolage mensuel (Ar)", "number", required=True, maximum=school.MAX_AMOUNT,
-                            decimals=0, step=1000),
-                      Field("registration_fee", "Frais d'inscription (Ar)", "number", maximum=school.MAX_AMOUNT,
-                            decimals=0, step=1000, default=0)]
+            amount_fields = [
+                ("droit_amount", "Droit"),
+                ("photocopy_amount", "Photocopie"),
+                ("uniform_amount", "Tenue"),
+                ("activity_1_amount", "Activité 1"),
+                ("activity_2_amount", "Activité 2"),
+                ("activity_3_amount", "Activité 3"),
+                ("activity_4_amount", "Activité 4"),
+                ("activity_5_amount", "Activité 5"),
+            ]
+            cols = [("class_name", "Classe"), ("school_year", "Année"),
+                    ("monthly_amount", "Écolage mensuel (Ar)")] + [
+                        (key, f"{label} (Ar)") for key, label in amount_fields]
+            fields = [Field("class_id", "Classe", "combo", required=True,
+                            choices=services.fees.class_options),
+                      Field("monthly_amount", "Écolage mensuel, septembre à juin (Ar)", "number",
+                            required=True, maximum=school.MAX_AMOUNT, decimals=0, step=1000)]
+            fields.extend(Field(key, f"{label} (Ar)", "number", maximum=school.MAX_AMOUNT,
+                                decimals=0, step=1000, default=0) for key, label in amount_fields)
             self.fees = CrudView(services.fees, cols, fields, ctx, noun="tarif")
-            self.tabs.addTab(self.fees, "Tarifs")
+            self.tabs.addTab(self.fees, "Tarifs par classe")
         self.tabs.currentChanged.connect(lambda _i: self._refresh_tab())
         lay = QVBoxLayout(self)
         lay.addWidget(self.tabs)

@@ -42,7 +42,7 @@ class _BaseDialog(QDialog):
 
 class LoginDialog(_BaseDialog):
     def __init__(self, auth):
-        super().__init__("Connexion — Gestion d'école")
+        super().__init__("Connexion - Gestion d'école")
         self.auth = auth
         self.user, self.pwd = self._line(max_len=50), self._line(True)
         self.form.addRow("Identifiant", self.user)

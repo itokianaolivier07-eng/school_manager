@@ -35,11 +35,11 @@ def main(n_students: int) -> None:
         teachers = [{"employee_no": f"P{i:04d}", "first_name": rnd.choice(FIRST),
                      "last_name": rnd.choice(LAST), "email": f"prof{i}@ecole.test"} for i in range(1, 41)]
         TeacherRepository(db).bulk_insert(teachers)
-        sections = max(1, (n_students + len(school.LEVELS) * 45 - 1) // (len(school.LEVELS) * 45))
-        classes = [{"name": f"{lvl}-{section:03d}", "level": lvl,
+        sections = max(1, (n_students + school.DEFAULT_CAPACITY - 1) // school.DEFAULT_CAPACITY)
+        classes = [{"name": f"Classe {section:03d}",
                     "school_year": school.current_school_year(), "capacity": 45,
                     "main_teacher_id": rnd.randint(1, 40)}
-                   for lvl in school.LEVELS for section in range(1, sections + 1)]
+                   for section in range(1, sections + 1)]
         ClassRepository(db).bulk_insert(classes)
         SubjectRepository(db).bulk_insert([{"code": c, "name": n, "coefficient": k,
                                             "teacher_id": rnd.randint(1, 40)} for c, n, k in SUBJECTS])

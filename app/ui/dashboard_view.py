@@ -36,7 +36,6 @@ class DashboardView(QWidget):
         if "collected_year" in d:
             cards += [(f"Encaissé ({d['school_year']})", school.fmt_ar(d["collected_year"])),
                       ("Encaissé ce mois", school.fmt_ar(d["collected_month"]))]
-        cards += [(f"Élèves en {lvl}", n) for lvl, n in d["by_level"].items()]
         for i, (title, value) in enumerate(cards):
             self.grid.addWidget(_card(title, value), i // 3, i % 3)
         self.grid.setRowStretch(len(cards) // 3 + 1, 1)

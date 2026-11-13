@@ -3,7 +3,8 @@ from app.repositories.base import BaseRepository
 
 class StudentRepository(BaseRepository):
     table = "students"
-    columns = ("matricule", "first_name", "last_name", "birth_date", "gender", "guardian_name",
+    columns = ("matricule", "first_name", "last_name", "birth_date", "gender", "tutor_name",
+               "father_name", "mother_name",
                "tuition_discount", "address", "class_id", "status")
     extra_cols = ", c.name AS class_name"
     joins = "LEFT JOIN classes c ON c.id = t.class_id"
@@ -15,28 +16,30 @@ class StudentRepository(BaseRepository):
 
     def _select(self):
         return ("SELECT t.id, t.matricule, t.first_name, t.last_name, t.birth_date, t.gender, "
-                "t.guardian_name, t.tuition_discount, t.address, t.class_id, t.status, "
+                "t.tutor_name, t.father_name, t.mother_name, t.tuition_discount, t.address, "
+                "t.class_id, t.status, "
                 "t.created_at, t.updated_at" + self.extra_cols +
                 f" FROM {self.table} t {self.joins}")
 
 
 class TeacherRepository(BaseRepository):
     table = "teachers"
-    columns = ("employee_no", "first_name", "last_name", "email", "phone", "speciality", "hire_date")
+    columns = ("employee_no", "first_name", "last_name", "gender", "birth_date", "birth_place",
+               "phone", "address", "position", "hire_date")
     search_fields = ("t.last_name", "t.first_name", "t.employee_no")
     sort_fields = {"last_name": "t.last_name", "first_name": "t.first_name",
-                   "employee_no": "t.employee_no", "speciality": "t.speciality"}
+                   "employee_no": "t.employee_no", "position": "t.position"}
     default_sort = "t.last_name"
 
 
 class ClassRepository(BaseRepository):
     table = "classes"
-    columns = ("name", "level", "school_year", "capacity", "main_teacher_id")
+    columns = ("name", "school_year", "capacity", "main_teacher_id")
     extra_cols = (", (SELECT COUNT(*) FROM students s WHERE s.class_id = t.id) AS student_count,"
-                  " (m.last_name || ' ' || m.first_name) AS main_teacher")
+                  " (m.employee_no || ' — ' || m.last_name || ' ' || m.first_name) AS employee")
     joins = "LEFT JOIN teachers m ON m.id = t.main_teacher_id"
-    search_fields = ("t.name", "t.level")
-    sort_fields = {"name": "t.name", "level": "t.level", "school_year": "t.school_year",
+    search_fields = ("t.name",)
+    sort_fields = {"name": "t.name", "school_year": "t.school_year",
                    "student_count": "student_count", "capacity": "t.capacity"}
     default_sort = "t.name"
 

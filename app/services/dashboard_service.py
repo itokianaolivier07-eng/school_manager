@@ -14,9 +14,6 @@ class DashboardService:
             "students": one("SELECT COUNT(*) FROM students WHERE status = 'active'"),
             "classes": one("SELECT COUNT(*) FROM classes"),
             "teachers": one("SELECT COUNT(*) FROM teachers"),
-            "by_level": {lvl: one("SELECT COUNT(*) FROM students st JOIN classes c ON c.id = st.class_id "
-                                  "WHERE st.status = 'active' AND c.level = ?", (lvl,))
-                         for lvl in school.LEVELS},
             "school_year": school.current_school_year(),
         }
         if s.can("payments.read"):

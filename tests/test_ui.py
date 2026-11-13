@@ -11,6 +11,7 @@ from app.ui.forms import Field, FormDialog
 from app.ui.dialogs import LoginDialog
 from app.ui.main_window import MainWindow
 from app.ui.theme import apply_theme
+from app.ui.views import classes_view
 from tests.conftest import make_env
 
 
@@ -63,3 +64,22 @@ def test_input_and_table_text_are_dark(qapp):
     assert line.palette().color(line.foregroundRole()).name() == "#1e293b"
     assert combo.palette().color(combo.foregroundRole()).name() == "#1e293b"
     assert table.palette().color(table.foregroundRole()).name() == "#1e293b"
+
+
+def test_class_screen_uses_employee_and_has_no_level(qapp):
+    ctx, services = make_env()
+    employee_id = services.teachers.create({
+        "employee_no": "EMP001",
+        "first_name": "Aina",
+        "last_name": "Rakoto",
+        "gender": "F",
+        "birth_date": "1985-04-12",
+        "hire_date": "2020-09-01",
+    })
+    view = classes_view(services, ctx)
+
+    assert all(column[1] != "Niveau" for column in view.columns)
+    assert all(field.name != "level" for field in view.fields)
+    employee = next(field for field in view.fields if field.name == "main_teacher_id")
+    assert employee.label == "Employé"
+    assert employee.choices() == [("EMP001 — Rakoto Aina", employee_id)]

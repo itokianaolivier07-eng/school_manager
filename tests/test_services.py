@@ -25,9 +25,13 @@ def test_create_student_autogenerates_matricule(env):
 
 def test_student_schema_and_legacy_contact_privacy(env):
     ctx, svc = env
-    assert ctx.db.one("PRAGMA user_version")[0] == 2
+    assert ctx.db.one("PRAGMA user_version")[0] == 6
+    class_columns = {row["name"] for row in ctx.db.all("PRAGMA table_info(classes)")}
+    assert "level" not in class_columns
+    assert ctx.db.one("SELECT name FROM sqlite_master WHERE type='table' AND name='tuition_fees'") is None
     columns = {row["name"] for row in ctx.db.all("PRAGMA table_info(students)")}
-    assert {"guardian_name", "tuition_discount", "email", "phone"} <= columns
+    assert {"guardian_name", "tutor_name", "father_name", "mother_name",
+            "tuition_discount", "email", "phone"} <= columns
 
     student_id = svc.students.create({**VALID, "email": "ancien@example.test"})
     assert "email" not in svc.students.get(student_id)
@@ -42,12 +46,21 @@ def test_migration_from_existing_database_preserves_student_data():
             "INSERT INTO students (matricule, first_name, last_name, birth_date, email, phone) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             ("E1", "Miora", "Rakoto", "2010-05-12", "ancien@example.test", "12345678"))
+        db.execute(
+            "INSERT INTO teachers (employee_no, first_name, last_name, speciality) "
+            "VALUES (?, ?, ?, ?)",
+            ("ENS001", "Aina", "Rakoto", "Enseignante"))
 
         migrate(db)
 
-        row = db.one("SELECT email, phone, guardian_name, tuition_discount FROM students WHERE matricule='E1'")
-        assert tuple(row) == ("ancien@example.test", "12345678", None, 0)
-        assert db.one("PRAGMA user_version")[0] == 2
+        row = db.one("SELECT email, phone, guardian_name, tutor_name, father_name, mother_name, "
+                     "tuition_discount FROM students WHERE matricule='E1'")
+        assert tuple(row) == ("ancien@example.test", "12345678", None, None, None, None, 0)
+        teacher = db.one("SELECT position FROM teachers WHERE employee_no='ENS001'")
+        assert teacher["position"] == "Enseignante"
+        assert db.one("PRAGMA user_version")[0] == 6
+        class_columns = {row["name"] for row in db.all("PRAGMA table_info(classes)")}
+        assert "level" not in class_columns
     finally:
         db.close()
 
@@ -58,6 +71,48 @@ def test_validation_rejects_bad_input(env):
                 {**VALID, "birth_date": "2020-01-01"}, {**VALID, "gender": "X"}):
         with pytest.raises(ValidationError):
             svc.students.create(bad)
+
+
+def test_class_without_level_and_optional_parent_names(env):
+    _, svc = env
+    class_id = svc.classes.create({"name": "Classe A", "school_year": "2026-2027"})
+    class_row = svc.classes.get(class_id)
+    assert "level" not in class_row
+    student_id = svc.students.create({**VALID, "class_id": class_id})
+    student = svc.students.get(student_id)
+    assert (student["tutor_name"], student["father_name"], student["mother_name"]) == (None, None, None)
+
+    svc.students.update(student_id, {**VALID, "matricule": student["matricule"], "class_id": class_id,
+                                     "tutor_name": "Tuteur", "father_name": "Père", "mother_name": "Mère"})
+    student = svc.students.get(student_id)
+    assert (student["tutor_name"], student["father_name"], student["mother_name"]) == (
+        "Tuteur", "Père", "Mère")
+
+
+def test_teacher_profile_fields(env):
+    _, svc = env
+    teacher_id = svc.teachers.create({
+        "employee_no": "ENS001",
+        "last_name": "Rakoto",
+        "first_name": "Aina Miora",
+        "gender": "F",
+        "birth_date": "1985-04-12",
+        "birth_place": "Antananarivo",
+        "phone": "0341234567",
+        "address": "Analamahitsy",
+        "position": "Enseignante",
+        "hire_date": "2020-09-01",
+    })
+    teacher = svc.teachers.get(teacher_id)
+    assert tuple(teacher[key] for key in (
+        "employee_no", "last_name", "first_name", "gender", "birth_date", "birth_place",
+        "phone", "address", "position", "hire_date"
+    )) == ("ENS001", "Rakoto", "Aina Miora", "F", "1985-04-12", "Antananarivo",
+           "0341234567", "Analamahitsy", "Enseignante", "2020-09-01")
+
+    with pytest.raises(ValidationError):
+        svc.teachers.create({"employee_no": "ENS002", "last_name": "Rabe", "first_name": "Soa",
+                             "birth_date": "1986-04-12", "hire_date": "2020-09-01"})
 
 
 def test_duplicate_matricule(env):
@@ -150,14 +205,21 @@ def test_grades_and_ranking(env):
 def test_fees_and_payments(env):
     ctx, svc = env
     year = "2026-2027"
-    class_id = svc.classes.create({"name": "6e-A", "level": "6e", "school_year": year})
+    class_id = svc.classes.create({"name": "Classe A", "school_year": year})
     student_id = svc.students.create({**VALID, "class_id": class_id, "tuition_discount": 20})
-    svc.fees.create({"level": "6e", "school_year": year, "monthly_amount": 2500,
-                     "registration_fee": 1000})
+    svc.fees.create({"class_id": class_id, "monthly_amount": 2500, "droit_amount": 1000,
+                     "photocopy_amount": 200, "uniform_amount": 300, "activity_1_amount": 400})
 
     statement = svc.payments.statement(student_id)
     assert statement["rows"][0]["due"] == 1000
-    assert statement["rows"][1]["due"] == 2000
+    assert statement["rows"][3]["label"] == "Septembre"
+    assert statement["rows"][3]["due"] == 2000
+    assert [row["label"] for row in statement["rows"]] == [
+        "Droit", "Photocopie", "Tenue", "Septembre", "Octobre", "Novembre", "Décembre",
+        "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Activité 1", "Activité 2",
+        "Activité 3", "Activité 4", "Activité 5"]
+    assert len(statement["rows"]) == 18
+    assert statement["total_due"] == 1000 + 200 + 300 + 400 + 10 * 2000
 
     payment_id, receipt = svc.payments.record(
         student_id, {"kind": "registration", "amount": 1000, "method": "cash"})
@@ -170,20 +232,23 @@ def test_fees_and_payments(env):
     with pytest.raises(sqlite3.IntegrityError, match="Paiement non modifiable"):
         ctx.db.execute("UPDATE payments SET amount = 500 WHERE id = ?", (payment_id,))
 
+    svc.payments.record(student_id, {"fee_code": "photocopie", "amount": 200, "method": "cash"})
+    assert svc.payments.statement(student_id)["rows"][1]["paid"] == 200
+
 
 def test_arrears_respect_the_class_school_year(env):
     _, svc = env
     old_year = "2025-2026"
     future_year = "2027-2028"
-    old_class = svc.classes.create({"name": "6e-ancienne", "level": "6e", "school_year": old_year})
-    future_class = svc.classes.create({"name": "6e-future", "level": "6e", "school_year": future_year})
+    old_class = svc.classes.create({"name": "Classe ancienne", "school_year": old_year})
+    future_class = svc.classes.create({"name": "Classe future", "school_year": future_year})
     svc.students.create({**VALID, "class_id": old_class})
     svc.students.create({**VALID, "first_name": "Aina", "class_id": future_class})
-    svc.fees.create({"level": "6e", "school_year": old_year, "monthly_amount": 1000})
-    svc.fees.create({"level": "6e", "school_year": future_year, "monthly_amount": 1000})
+    svc.fees.create({"class_id": old_class, "monthly_amount": 1000})
+    svc.fees.create({"class_id": future_class, "monthly_amount": 1000})
 
     arrears = svc.payments.arrears(old_class, date(2026, 9, 15))
-    assert arrears[0]["due"] == 9000
+    assert arrears[0]["due"] == 10000
     assert svc.payments.arrears(future_class, date(2026, 9, 15)) == []
 
 
@@ -198,6 +263,39 @@ def test_dashboard_and_billing_permissions():
     assert "collected_year" not in teacher.dashboard.summary()
     with pytest.raises(PermissionDenied):
         teacher.payments.statement(1)
+
+
+def test_class_fee_migration_preserves_legacy_fees_and_payments():
+    from app.database.migration2 import MIGRATION_2
+    from app.database.migration3 import MIGRATION_3
+
+    db = Database()
+    try:
+        db.conn.executescript(f"{MIGRATION_1}\n{MIGRATION_2}\nPRAGMA user_version=2;")
+        db.execute("INSERT INTO classes (name, level, school_year) VALUES ('6e-A', '6e', '2026-2027')")
+        db.execute("INSERT INTO tuition_fees (level, school_year, monthly_amount, registration_fee) "
+                   "VALUES ('6e', '2026-2027', 2500, 1000)")
+        db.execute("INSERT INTO students (matricule, first_name, last_name, birth_date, class_id, guardian_name) "
+                   "VALUES ('E1', 'Aina', 'Rabe', '2010-01-01', 1, 'Ancien tuteur')")
+        db.execute("INSERT INTO payments (student_id, school_year, kind, month, amount, method) "
+                   "VALUES (1, '2026-2027', 'monthly', 10, 2500, 'cash')")
+
+        migrate(db)
+
+        fee = db.one("SELECT * FROM class_tuition_fees WHERE class_id = 1")
+        payment = db.one("SELECT fee_code FROM payments WHERE student_id = 1")
+        student = db.one("SELECT tutor_name FROM students WHERE id = 1")
+        school_class = db.one("SELECT name, school_year FROM classes WHERE id = 1")
+        assert (fee["monthly_amount"], fee["droit_amount"]) == (2500, 1000)
+        assert payment["fee_code"] == "october"
+        assert student["tutor_name"] == "Ancien tuteur"
+        assert (school_class["name"], school_class["school_year"]) == ("6e-A", "2026-2027")
+        assert db.one("SELECT name FROM sqlite_master WHERE type='table' AND name='tuition_fees'") is None
+        assert "level" not in {row["name"] for row in db.all("PRAGMA table_info(classes)")}
+        with pytest.raises(sqlite3.IntegrityError, match="Paiement non modifiable"):
+            db.execute("UPDATE payments SET fee_code = 'september' WHERE student_id = 1")
+    finally:
+        db.close()
 
 
 def test_csv_import_export_and_formula_injection(env, tmp_path):

@@ -1,5 +1,4 @@
 """Enseignants, classes et matières."""
-from app.core import school
 from app.core import validators as V
 from app.repositories.repos import ClassRepository, SubjectRepository, TeacherRepository
 from app.services.base import CrudService
@@ -17,7 +16,8 @@ class TeacherService(_OptionsMixin, CrudService):
     entity = "teachers"
     repo_cls = TeacherRepository
     read_perm, write_perm, delete_perm = "teachers.read", "teachers.write", "teachers.delete"
-    option_sql = "SELECT id, last_name || ' ' || first_name AS label FROM teachers ORDER BY last_name"
+    option_sql = ("SELECT id, employee_no || ' — ' || last_name || ' ' || first_name AS label "
+                  "FROM teachers ORDER BY last_name, first_name")
 
     def validate(self, data):
         return {
@@ -25,10 +25,13 @@ class TeacherService(_OptionsMixin, CrudService):
                                   pattern=V.CODE_RE),
             "first_name": V.text(data, "first_name", "Prénom", max_len=60, pattern=V.NAME_RE),
             "last_name": V.text(data, "last_name", "Nom", max_len=60, pattern=V.NAME_RE),
-            "email": V.text(data, "email", "E-mail", required=False, max_len=120, pattern=V.EMAIL_RE),
+            "gender": V.choice(data, "gender", "Genre", ("M", "F")),
+            "birth_date": V.date_iso(data, "birth_date", "Date de naissance"),
+            "birth_place": V.text(data, "birth_place", "Lieu de naissance", required=False, max_len=100),
             "phone": V.text(data, "phone", "Téléphone", required=False, max_len=20, pattern=V.PHONE_RE),
-            "speciality": V.text(data, "speciality", "Spécialité", required=False, max_len=80),
-            "hire_date": V.date_iso(data, "hire_date", "Date d'embauche", required=False),
+            "address": V.text(data, "address", "Adresse", required=False, max_len=200),
+            "position": V.text(data, "position", "Poste", required=False, max_len=80),
+            "hire_date": V.date_iso(data, "hire_date", "Date d'embauche"),
         }
 
 
@@ -41,10 +44,9 @@ class ClassService(_OptionsMixin, CrudService):
     def validate(self, data):
         return {
             "name": V.text(data, "name", "Nom de la classe", max_len=40),
-            "level": V.choice(data, "level", "Niveau", school.LEVELS, required=False),
             "school_year": V.school_year(data, "school_year"),
             "capacity": V.integer(data, "capacity", "Effectif maximal", minimum=1, maximum=80) or 45,
-            "main_teacher_id": V.integer(data, "main_teacher_id", "Titulaire", minimum=1),
+            "main_teacher_id": V.integer(data, "main_teacher_id", "Employé", minimum=1),
         }
 
 

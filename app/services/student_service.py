@@ -12,7 +12,8 @@ from app.core.exceptions import AppError, ValidationError
 from app.repositories.repos import StudentRepository
 from app.services.base import CrudService
 
-EXPORT_COLS = ("matricule", "last_name", "first_name", "birth_date", "gender", "guardian_name",
+EXPORT_COLS = ("matricule", "last_name", "first_name", "birth_date", "gender", "tutor_name",
+               "father_name", "mother_name",
                "tuition_discount", "address", "class_name", "status")
 STATUSES = ("active", "suspended", "graduated", "left")
 
@@ -43,7 +44,9 @@ class StudentService(CrudService):
             "last_name": V.text(data, "last_name", "Nom", max_len=60, pattern=V.NAME_RE),
             "birth_date": self._birth_date(data),
             "gender": V.choice(data, "gender", "Genre", ("M", "F"), required=False),
-            "guardian_name": V.text(data, "guardian_name", "Responsable légal", required=False, max_len=100),
+            "tutor_name": V.text(data, "tutor_name", "Tuteur", required=False, max_len=100),
+            "father_name": V.text(data, "father_name", "Nom du père", required=False, max_len=100),
+            "mother_name": V.text(data, "mother_name", "Nom de la mère", required=False, max_len=100),
             "tuition_discount": V.integer(data, "tuition_discount", "Remise", minimum=0, maximum=100) or 0,
             "address": V.text(data, "address", "Adresse", required=False, max_len=200),
             "class_id": V.integer(data, "class_id", "Classe", minimum=1),
@@ -96,6 +99,8 @@ class StudentService(CrudService):
                 for line, row in enumerate(reader, start=2):
                     try:
                         row = dict(row)
+                        if "tutor_name" not in row and "guardian_name" in row:
+                            row["tutor_name"] = row["guardian_name"]
                         cname = (row.pop("class", "") or "").strip().upper()
                         if cname:
                             if cname not in classes:

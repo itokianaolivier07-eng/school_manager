@@ -32,9 +32,9 @@ def test_school_year_validation_and_boundaries():
     assert school_year({"year": "2026-2027"}, "year") == "2026-2027"
     with pytest.raises(ValidationError):
         school_year({"year": "2026-2028"}, "year")
-    assert school.current_school_year(date(2026, 9, 30)) == "2025-2026"
-    assert school.current_school_year(date(2026, 10, 1)) == "2026-2027"
-    assert school.months_elapsed(date(2026, 9, 30)) == 9
+    assert school.current_school_year(date(2026, 8, 31)) == "2025-2026"
+    assert school.current_school_year(date(2026, 9, 1)) == "2026-2027"
+    assert school.months_elapsed(date(2026, 9, 30)) == 1
 
 
 def test_session_expiry_and_permissions(env):

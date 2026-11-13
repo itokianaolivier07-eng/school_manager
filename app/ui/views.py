@@ -2,7 +2,6 @@
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from app.core.permissions import ROLE_LABELS
-from app.core import school
 from app.ui.crud_view import CrudView
 from app.ui.forms import Field
 from app.ui.utils import LABELS
@@ -21,7 +20,9 @@ def students_view(sv, ctx):
               Field("first_name", "Prénom", required=True, max_len=60),
               Field("birth_date", "Date de naissance", "date", required=True),
               Field("gender", "Genre", "combo", choices=GENDERS),
-              Field("guardian_name", "Responsable légal", max_len=100),
+              Field("tutor_name", "Tuteur", max_len=100),
+              Field("father_name", "Nom du père", max_len=100),
+              Field("mother_name", "Nom de la mère", max_len=100),
               Field("tuition_discount", "Remise d'écolage (%)", "number", maximum=100, decimals=0, step=1,
                     default=0),
               Field("address", "Adresse", max_len=200),
@@ -48,26 +49,31 @@ def students_view(sv, ctx):
 
 
 def teachers_view(sv, ctx):
-    columns = [("employee_no", "N°"), ("last_name", "Nom"), ("first_name", "Prénom"),
-               ("speciality", "Spécialité"), ("email", "E-mail")]
-    fields = [Field("employee_no", "N° employé", required=True, max_len=20),
+    columns = [("employee_no", "Numéro"), ("last_name", "Nom"), ("first_name", "Prénoms"),
+               ("gender", "Genre", LABELS["gender"]), ("birth_date", "Date de naissance"),
+               ("birth_place", "Lieu de naissance"), ("phone", "Téléphone"), ("address", "Adresse"),
+               ("position", "Poste"), ("hire_date", "Date d'embauche")]
+    fields = [Field("employee_no", "Numéro", required=True, max_len=20),
               Field("last_name", "Nom", required=True, max_len=60),
-              Field("first_name", "Prénom", required=True, max_len=60),
-              Field("email", "E-mail", max_len=120), Field("phone", "Téléphone", max_len=20),
-              Field("speciality", "Spécialité", max_len=80),
+              Field("first_name", "Prénoms", required=True, max_len=60),
+              Field("gender", "Genre", "combo", required=True, choices=GENDERS),
+              Field("birth_date", "Date de naissance", "date", required=True),
+              Field("birth_place", "Lieu de naissance", max_len=100),
+              Field("phone", "Téléphone", max_len=20),
+              Field("address", "Adresse", max_len=200),
+              Field("position", "Poste", max_len=80),
               Field("hire_date", "Date d'embauche", "date", required=True)]
     return CrudView(sv.teachers, columns, fields, ctx, noun="enseignant")
 
 
 def classes_view(sv, ctx):
-    columns = [("name", "Classe"), ("level", "Niveau"), ("school_year", "Année"),
-               ("student_count", "Élèves"), ("capacity", "Effectif max."), ("main_teacher", "Titulaire")]
+    columns = [("name", "Classe"), ("school_year", "Année"), ("student_count", "Élèves"),
+               ("capacity", "Effectif max."), ("employee", "Employé")]
     fields = [Field("name", "Nom", required=True, max_len=40),
-              Field("level", "Niveau", "combo", choices=lambda: [(level, level) for level in school.LEVELS]),
               Field("school_year", "Année scolaire (AAAA-AAAA)", required=True, max_len=9),
               Field("capacity", "Effectif maximal", "number", minimum=1, maximum=80, decimals=0, step=1,
                     default=45),
-              Field("main_teacher_id", "Titulaire", "combo", choices=sv.teachers.options
+              Field("main_teacher_id", "Employé", "combo", choices=sv.teachers.options
                     if ctx.session.can("teachers.read") else None)]
     return CrudView(sv.classes, columns, fields, ctx, noun="classe")
 

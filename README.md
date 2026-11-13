@@ -1,6 +1,6 @@
 # SchoolManager
 
-Application de bureau de gestion d'un collège, écrite en Python avec PyQt6 et SQLite.
+Application de bureau de gestion d'un établissement scolaire, écrite en Python avec PyQt6 et SQLite.
 
 ## Installation et lancement
 ```bash
@@ -29,8 +29,11 @@ app/core/                    sécurité (scrypt), RBAC, session, validateurs, ex
 ```
 Fonctions : tableau de bord, élèves (import/export CSV), enseignants, classes, matières, notes et classements,
 tarifs scolaires, encaissements, reçus PDF, annulations, impayés, utilisateurs, journal d'audit et sauvegardes.
-Les niveaux proposés sont ceux du collège malgache (6e à 3e). Les coordonnées historiques des élèves restent dans
+Les tarifs sont associés à une classe et à une année scolaire. Les coordonnées historiques des élèves restent dans
 les bases déjà créées, mais ne sont plus affichées ni exportées.
+Les tarifs d'écolage sont définis par classe et année scolaire : droit, photocopie, tenue, activités 1 à 5 et
+mensualités de septembre à juin. La situation de chaque élève affiche ces 18 postes séparément.
+La fiche élève peut contenir le tuteur et les noms du père et de la mère ; ces trois informations sont facultatives.
 
 ## Sécurité
 - Mots de passe : scrypt + sel aléatoire, comparaison à temps constant, politique de complexité.
