@@ -1,0 +1,41 @@
+# Environnements Python
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Tests et couverture
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Bases de données locales et fichiers temporaires SQLite
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.log
+*.log.*
+
+# Données scolaires exportées par défaut
+/eleves.csv
+
+# Configuration locale et secrets
+.env
+.env.*
+!.env.example
+
+# Éditeurs et système
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
