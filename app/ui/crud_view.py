@@ -10,18 +10,18 @@ from app.ui.utils import handle_error
 
 
 class CrudView(QWidget):
-    """Vue générique : recherche différée, tri serveur, pagination SQL, ajout/édition/suppression."""
-
     def __init__(self, service, columns, fields, ctx, *, noun="élément", read_only=False,
                  extra_actions=()):
         super().__init__()
         self.service, self.columns, self.fields, self.ctx, self.noun = service, columns, fields, ctx, noun
+        self.read_only = read_only
         self.sort_key, self.desc, self.page_no = None, service.default_desc, 0
-        self.model = RowsModel(columns)
+        self.display_columns = list(columns) + [("_actions", "Actions")]
+        self.model = RowsModel(self.display_columns)
 
         self.search = QLineEdit()
         self.search.setObjectName("searchField")
-        self.search.setPlaceholderText("Rechercher (début du nom, matricule…)")
+        self.search.setPlaceholderText("Rechercher…")
         self.search.setMaxLength(100)
         self.search.setClearButtonEnabled(True)
         self.timer = QTimer(self)
@@ -37,28 +37,27 @@ class CrudView(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
-        self.table.verticalHeader().setDefaultSectionSize(38)
+        self.table.verticalHeader().setDefaultSectionSize(48)
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(len(self.display_columns) - 1, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(len(self.display_columns) - 1, 210)
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
         header.sectionClicked.connect(self._on_sort)
-        self.table.doubleClicked.connect(lambda _i: self.edit())
+        self.table.doubleClicked.connect(lambda _i: self.view_item())
 
         top = QHBoxLayout()
         top.setSpacing(8)
         top.addWidget(self.search, 1)
         s = ctx.session
         can_write = not read_only and s.can(service.write_perm)
-        can_delete = not read_only and s.can(service.delete_perm)
-        for label, slot, allowed in (("Ajouter", self.add, can_write), ("Modifier", self.edit, can_write),
-                                     ("Supprimer", self.remove, can_delete)):
-            if allowed:
-                b = QPushButton(label)
-                b.setObjectName("primaryButton" if label == "Ajouter" else "secondaryButton")
-                b.clicked.connect(slot)
-                top.addWidget(b)
+        if can_write:
+            b = QPushButton("＋ Ajouter")
+            b.setObjectName("primaryButton")
+            b.clicked.connect(self.add)
+            top.addWidget(b)
         for label, callback, perm in extra_actions:
             if s.can(perm):
                 b = QPushButton(label)
@@ -86,20 +85,56 @@ class CrudView(QWidget):
         layout.addWidget(self.table, 1)
         layout.addLayout(bottom)
 
-    # --- données ---
     def refresh(self):
         try:
             page = self.service.page(self.search.text(), self.sort_key, self.desc, self.page_no)
         except Exception as e:
             handle_error(self, e)
             return
-        if self.page_no >= page.pages:        # page devenue vide (suppression, filtre)
+        if self.page_no >= page.pages:
             self.page_no = page.pages - 1
             return self.refresh()
         self.model.set_rows(page.rows)
         self.info.setText(f"{page.total} résultat(s) — page {page.page + 1} / {page.pages}")
         self.prev_btn.setEnabled(page.page > 0)
         self.next_btn.setEnabled(page.page + 1 < page.pages)
+        self._install_row_actions()
+
+    def _install_row_actions(self):
+        actions_col = len(self.display_columns) - 1
+        s = self.ctx.session
+        can_write = not self.read_only and s.can(self.service.write_perm)
+        can_delete = not self.read_only and s.can(self.service.delete_perm)
+        can_read = s.can(self.service.read_perm)
+        for row_idx in range(self.model.rowCount()):
+            cell = QWidget()
+            cell.setObjectName("actionsCell")
+            lay = QHBoxLayout(cell)
+            lay.setContentsMargins(4, 2, 4, 2)
+            lay.setSpacing(6)
+            lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            if can_read:
+                btn_view = QPushButton("Voir")
+                btn_view.setObjectName("rowViewBtn")
+                btn_view.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_view.setFixedHeight(28)
+                btn_view.clicked.connect(lambda _=False, r=row_idx: self.view_item(r))
+                lay.addWidget(btn_view)
+            if can_write:
+                btn_edit = QPushButton("Modifier")
+                btn_edit.setObjectName("rowEditBtn")
+                btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_edit.setFixedHeight(28)
+                btn_edit.clicked.connect(lambda _=False, r=row_idx: self.edit(r))
+                lay.addWidget(btn_edit)
+            if can_delete:
+                btn_del = QPushButton("Suppr.")
+                btn_del.setObjectName("rowDeleteBtn")
+                btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_del.setFixedHeight(28)
+                btn_del.clicked.connect(lambda _=False, r=row_idx: self.remove(r))
+                lay.addWidget(btn_del)
+            self.table.setIndexWidget(self.model.index(row_idx, actions_col), cell)
 
     def _search_changed(self):
         self.page_no = 0
@@ -110,6 +145,8 @@ class CrudView(QWidget):
         self.refresh()
 
     def _on_sort(self, col):
+        if col >= len(self.columns):
+            return
         key = self.columns[col][0]
         if key not in self.service.repo.sort_fields:
             return
@@ -120,8 +157,10 @@ class CrudView(QWidget):
         self.page_no = 0
         self.refresh()
 
-    def _selected_id(self):
-        row = self.model.row_at(self.table.currentIndex().row())
+    def _row_id(self, row_idx=None):
+        if row_idx is None:
+            row_idx = self.table.currentIndex().row()
+        row = self.model.row_at(row_idx)
         if row is None:
             QMessageBox.information(self, "Sélection", f"Sélectionnez d'abord un {self.noun}.")
             return None
@@ -133,17 +172,18 @@ class CrudView(QWidget):
         except Exception as e:
             handle_error(self, e)
 
-    # --- actions ---
-    def _dialog(self, title, initial, submit):
+    def _dialog(self, title, initial, submit, readonly=False):
         while True:
-            dlg = FormDialog(title, self.fields, initial, self)
+            dlg = FormDialog(title, self.fields, initial, self, readonly=readonly)
             if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            if readonly:
                 return
             values = dlg.values()
             try:
                 submit(values)
                 return
-            except AppError as e:      # on rouvre le formulaire avec les valeurs saisies
+            except AppError as e:
                 handle_error(self, e)
                 initial = values
             except Exception as e:
@@ -154,8 +194,18 @@ class CrudView(QWidget):
         self._dialog(f"Ajouter : {self.noun}", {}, self.service.create)
         self.refresh()
 
-    def edit(self):
-        id_ = self._selected_id()
+    def view_item(self, row_idx=None):
+        id_ = self._row_id(row_idx)
+        if id_ is None:
+            return
+        try:
+            initial = self.service.get(id_)
+        except Exception as e:
+            return handle_error(self, e)
+        self._dialog(f"Voir : {self.noun}", initial, lambda _v: None, readonly=True)
+
+    def edit(self, row_idx=None):
+        id_ = self._row_id(row_idx)
         if id_ is None or not self.ctx.session.can(self.service.write_perm):
             return
         try:
@@ -165,8 +215,8 @@ class CrudView(QWidget):
         self._dialog(f"Modifier : {self.noun}", initial, lambda v: self.service.update(id_, v))
         self.refresh()
 
-    def remove(self):
-        id_ = self._selected_id()
+    def remove(self, row_idx=None):
+        id_ = self._row_id(row_idx)
         if id_ is None:
             return
         if QMessageBox.question(self, "Confirmation", f"Supprimer définitivement ce {self.noun} ?"

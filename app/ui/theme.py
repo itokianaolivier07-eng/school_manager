@@ -1,4 +1,4 @@
-"""Feuille de style globale de l'application."""
+"""Feuille de style globale — design moderne."""
 
 STYLESHEET = """
 * { font-family: "Inter", "Segoe UI", "Noto Sans", "Ubuntu", sans-serif; font-size: 10.5pt; }
@@ -8,9 +8,10 @@ QLabel#pageTitle { font-size: 20pt; font-weight: 700; color: #1e1b4b; }
 QLabel#dialogTitle { font-size: 14pt; font-weight: 700; color: #1e1b4b; padding-bottom: 6px; }
 QLabel#muted { color: #64748b; }
 QLabel#error { color: #dc2626; }
+QLabel#resultInfo { color: #64748b; font-size: 9.5pt; }
 
-QListWidget#nav { background: #1e1b4b; border: none; padding: 12px 8px; outline: 0; }
-QListWidget#nav::item { color: #c7d2fe; padding: 11px 14px; margin: 2px 0; border-radius: 10px; }
+QListWidget#nav { background: #1e1b4b; border: none; padding: 14px 10px; outline: 0; }
+QListWidget#nav::item { color: #c7d2fe; padding: 12px 16px; margin: 3px 0; border-radius: 10px; }
 QListWidget#nav::item:hover { background: #312e81; }
 QListWidget#nav::item:selected { background: #4f46e5; color: white; font-weight: 600; }
 
@@ -19,17 +20,35 @@ QPushButton { background: #4f46e5; color: white; border: none; border-radius: 9p
 QPushButton:hover { background: #4338ca; }
 QPushButton:pressed { background: #3730a3; }
 QPushButton:disabled { background: #cbd5e1; color: #f8fafc; }
-QPushButton[variant="secondary"] { background: #e0e7ff; color: #3730a3; }
-QPushButton[variant="secondary"]:hover { background: #c7d2fe; }
-QPushButton[variant="danger"] { background: #fee2e2; color: #b91c1c; }
-QPushButton[variant="danger"]:hover { background: #fecaca; }
-QPushButton[variant="success"] { background: #16a34a; }
-QPushButton[variant="success"]:hover { background: #15803d; }
+
+QPushButton#primaryButton { background: #4f46e5; color: white; }
+QPushButton#primaryButton:hover { background: #4338ca; }
+QPushButton#secondaryButton { background: #e0e7ff; color: #3730a3; }
+QPushButton#secondaryButton:hover { background: #c7d2fe; }
+
+QPushButton#rowViewBtn {
+    background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe;
+    border-radius: 7px; padding: 4px 12px; font-weight: 600; font-size: 9.5pt;
+}
+QPushButton#rowViewBtn:hover { background: #c7d2fe; }
+QPushButton#rowEditBtn {
+    background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0;
+    border-radius: 7px; padding: 4px 12px; font-weight: 600; font-size: 9.5pt;
+}
+QPushButton#rowEditBtn:hover { background: #a7f3d0; }
+QPushButton#rowDeleteBtn {
+    background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+    border-radius: 7px; padding: 4px 12px; font-weight: 600; font-size: 9.5pt;
+}
+QPushButton#rowDeleteBtn:hover { background: #fecaca; }
+
+QWidget#actionsCell { background: transparent; }
 
 QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox {
     color: #1e293b; background: white; border: 1px solid #cbd5e1; border-radius: 9px; padding: 7px 10px;
     selection-background-color: #c7d2fe; selection-color: #1e1b4b; min-height: 20px; }
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QDoubleSpinBox:focus { border: 2px solid #4f46e5; }
+QLineEdit#searchField { padding: 9px 14px; font-size: 10.5pt; }
 QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 26px; }
 QComboBox QAbstractItemView { color: #1e293b; background: white; border: 1px solid #cbd5e1;
                               selection-background-color: #e0e7ff; selection-color: #1e1b4b; }
@@ -38,7 +57,7 @@ QTableView, QTableWidget, QListWidget#results { background: white; alternate-bac
     color: #1e293b; border: 1px solid #e2e8f0; border-radius: 12px; gridline-color: transparent;
     selection-background-color: #e0e7ff; selection-color: #1e1b4b; }
 QTableView::item, QTableWidget::item { color: #1e293b; padding: 6px; }
-QHeaderView::section { background: #eef2ff; color: #3730a3; padding: 9px; border: none; font-weight: 700; }
+QHeaderView::section { background: #eef2ff; color: #3730a3; padding: 10px; border: none; font-weight: 700; }
 QTableCornerButton::section { background: #eef2ff; border: none; }
 
 QTabWidget::pane { border: none; margin-top: 8px; }

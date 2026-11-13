@@ -10,9 +10,9 @@ from PyQt6.QtWidgets import (QComboBox, QDateEdit, QDialog, QDialogButtonBox, QD
 class Field:
     name: str
     label: str
-    kind: str = "text"          # text | password | date | combo | number
+    kind: str = "text"
     required: bool = False
-    choices: Optional[Callable] = None   # -> [(libellé, valeur)]
+    choices: Optional[Callable] = None
     max_len: int = 100
     minimum: float = 0.0
     maximum: float = 20.0
@@ -22,24 +22,30 @@ class Field:
 
 
 class FormDialog(QDialog):
-    """Formulaire généré à partir d'une liste de Field ; la validation reste dans les services."""
-
-    def __init__(self, title, fields, initial=None, parent=None):
+    def __init__(self, title, fields, initial=None, parent=None, readonly=False):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(460)
         self.fields = fields
         self.widgets = {}
+        self.readonly = readonly
         initial = initial or {}
         form = QFormLayout()
         for f in fields:
             w = self._make(f, initial.get(f.name))
+            if readonly:
+                w.setEnabled(False)
             self.widgets[f.name] = w
-            form.addRow(f.label + (" *" if f.required else ""), w)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+            form.addRow(f.label + (" *" if f.required and not readonly else ""), w)
+        if readonly:
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            buttons.rejected.connect(self.reject)
+            buttons.accepted.connect(self.accept)
+        else:
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            buttons.accepted.connect(self.accept)
+            buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(buttons)
@@ -69,7 +75,7 @@ class FormDialog(QDialog):
             default = f.default if f.default is not None else max(f.minimum, 1.0)
             w.setValue(float(value) if value not in (None, "") else default)
             return w
-        w = QComboBox()   # combo
+        w = QComboBox()
         if not f.required:
             w.addItem("— Aucun —", None)
         for label, val in (f.choices() if f.choices else []):

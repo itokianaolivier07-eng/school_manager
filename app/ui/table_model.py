@@ -2,16 +2,14 @@ from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
 
 class RowsModel(QAbstractTableModel):
-    """Modèle léger : ne contient que la page courante (100 lignes), pas les 30 000."""
-
     def __init__(self, columns, parent=None):
         super().__init__(parent)
-        self.columns = columns   # [(clé, titre, {valeur: libellé} optionnel)]
+        self.columns = columns
         self.rows = []
 
     def set_rows(self, rows):
         self.beginResetModel()
-        self.rows = list(rows)
+        self.rows = [dict(r) if hasattr(r, "keys") else r for r in rows]
         self.endResetModel()
 
     def row_at(self, i):
@@ -27,7 +25,11 @@ class RowsModel(QAbstractTableModel):
         if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
             return None
         col = self.columns[index.column()]
-        value = self.rows[index.row()][col[0]]
+        key = col[0]
+        if key == "_actions":
+            return ""
+        row = self.rows[index.row()]
+        value = row.get(key) if isinstance(row, dict) else row[key]
         if len(col) > 2 and col[2]:
             value = col[2].get(value, value)
         return "" if value is None else str(value)

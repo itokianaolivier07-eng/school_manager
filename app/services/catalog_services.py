@@ -1,6 +1,6 @@
-"""Enseignants, classes et matières."""
+"""Employés et classes."""
 from app.core import validators as V
-from app.repositories.repos import ClassRepository, SubjectRepository, TeacherRepository
+from app.repositories.repos import ClassRepository, TeacherRepository
 from app.services.base import CrudService
 
 
@@ -47,19 +47,4 @@ class ClassService(_OptionsMixin, CrudService):
             "school_year": V.school_year(data, "school_year"),
             "capacity": V.integer(data, "capacity", "Effectif maximal", minimum=1, maximum=80) or 45,
             "main_teacher_id": V.integer(data, "main_teacher_id", "Employé", minimum=1),
-        }
-
-
-class SubjectService(_OptionsMixin, CrudService):
-    entity = "subjects"
-    repo_cls = SubjectRepository
-    read_perm, write_perm, delete_perm = "subjects.read", "subjects.write", "subjects.delete"
-    option_sql = "SELECT id, name AS label FROM subjects ORDER BY name"
-
-    def validate(self, data):
-        return {
-            "code": V.text(data, "code", "Code", max_len=20, upper=True, pattern=V.CODE_RE),
-            "name": V.text(data, "name", "Nom de la matière", max_len=80),
-            "coefficient": V.number(data, "coefficient", "Coefficient", minimum=0.5, maximum=20),
-            "teacher_id": V.integer(data, "teacher_id", "Enseignant", minimum=1),
         }

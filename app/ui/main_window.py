@@ -8,7 +8,6 @@ from app.ui import views
 from app.ui.dashboard_view import DashboardView
 from app.ui.dialogs import ChangePasswordDialog
 from app.ui.fees_view import FeesView
-from app.ui.grades_view import GradesView
 from app.ui.toast import show_toast
 from app.ui.utils import handle_error
 
@@ -20,23 +19,25 @@ class MainWindow(QMainWindow):
         self.relogin = False
         user = ctx.session.user
         self.setWindowTitle("Gestion d'école")
-        self.resize(1250, 760)
+        self.resize(1280, 780)
         self.statusBar().showMessage(f"{user.full_name} — {ROLE_LABELS.get(user.role, user.role)}")
 
-        pages = [("Tableau de bord", "Tableau de bord", "dashboard.read", lambda: DashboardView(services, ctx)),
-                 ("Élèves", "Élèves", "students.read", lambda: views.students_view(services, ctx)),
-                 ("Enseignants", "Enseignants", "teachers.read", lambda: views.teachers_view(services, ctx)),
-                 ("Classes", "Classes", "classes.read", lambda: views.classes_view(services, ctx)),
-                 ("Matières", "Matières", "subjects.read", lambda: views.subjects_view(services, ctx)),
-                 ("Notes", "Notes et résultats", "grades.read", lambda: GradesView(services, ctx)),
-                 ("Écolages", "Écolages", "payments.read", lambda: FeesView(services, ctx)),
-                 ("Utilisateurs", "Utilisateurs", "users.manage", lambda: views.users_view(services, ctx)),
-                 ("Journal d'audit", "Journal d'audit", "audit.read", lambda: views.audit_view(services, ctx))]
+        pages = [
+            ("Tableau de bord", "Tableau de bord", "dashboard.read", lambda: DashboardView(services, ctx)),
+            ("Élèves", "Élèves", "students.read", lambda: views.students_view(services, ctx)),
+            ("Employés", "Employés", "teachers.read", lambda: views.teachers_view(services, ctx)),
+            ("Classes", "Classes", "classes.read", lambda: views.classes_view(services, ctx)),
+            ("Pointage", "Pointage", "attendance.read", lambda: views.attendance_view(services, ctx)),
+            ("Salaires", "Salaires", "salaries.read", lambda: views.salaries_view(services, ctx)),
+            ("Écolages", "Écolages", "payments.read", lambda: FeesView(services, ctx)),
+            ("Utilisateurs", "Utilisateurs", "users.manage", lambda: views.users_view(services, ctx)),
+            ("Journal d'audit", "Journal d'audit", "audit.read", lambda: views.audit_view(services, ctx)),
+        ]
         self.nav, self.stack, self.titles = QListWidget(), QStackedWidget(), []
         self.nav.setObjectName("nav")
-        self.nav.setFixedWidth(220)
+        self.nav.setFixedWidth(230)
         for label, title, perm, factory in pages:
-            if ctx.session.can(perm):        # le menu n'affiche que ce que le rôle autorise
+            if ctx.session.can(perm):
                 self.nav.addItem(label)
                 self.titles.append(title)
                 self.stack.addWidget(factory())
@@ -68,7 +69,7 @@ class MainWindow(QMainWindow):
             act.triggered.connect(self.backup)
             self.menuBar().addMenu("Données").addAction(act)
 
-        self.idle = QTimer(self)             # contrôle d'inactivité
+        self.idle = QTimer(self)
         self.idle.setInterval(10_000)
         self.idle.timeout.connect(self._check_idle)
         self.idle.start()

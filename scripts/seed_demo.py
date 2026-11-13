@@ -1,7 +1,4 @@
-"""Génère des données de démonstration (30 000 élèves par défaut) pour tester les performances.
-
-Usage : python -m scripts.seed_demo [--students 30000]
-"""
+"""Usage : python -m scripts.seed_demo [--students 30000]"""
 import argparse
 import random
 import time
@@ -11,15 +8,14 @@ from app import config
 from app.core import school
 from app.database.connection import Database
 from app.database.schema import migrate
-from app.repositories.repos import ClassRepository, StudentRepository, SubjectRepository, TeacherRepository
+from app.repositories.repos import ClassRepository, StudentRepository, TeacherRepository
 
 FIRST = ["Itokiana", "Miora", "Hery", "Fanja", "Tahina", "Lova", "Safidy", "Nirina", "Aina", "Mamy",
          "Lucas", "Emma", "Léa", "Hugo", "Chloé", "Nathan", "Inès", "Louis", "Zoé", "Adam"]
 LAST = ["Rakoto", "Randria", "Rasoa", "Andrianina", "Rabe", "Ravelo", "Razafy", "Martin", "Bernard",
         "Dubois", "Moreau", "Laurent", "Simon", "Michel", "Lefèvre", "Garcia", "Roux", "Fontaine"]
-SUBJECTS = [("MATH", "Mathématiques", 4), ("FR", "Français", 4), ("ANG", "Anglais", 2),
-            ("HG", "Histoire-Géographie", 2), ("SVT", "Sciences de la vie", 2),
-            ("PHY", "Physique-Chimie", 3), ("INFO", "Informatique", 2), ("EPS", "Sport", 1)]
+POSITIONS = ["Directeur", "Surveillant", "Comptable", "Secrétaire", "Enseignant", "Bibliothécaire",
+             "Infirmier", "Gardien"]
 
 
 def main(n_students: int) -> None:
@@ -32,17 +28,24 @@ def main(n_students: int) -> None:
     rnd = random.Random(42)
     t0 = time.perf_counter()
     with db.transaction():
-        teachers = [{"employee_no": f"P{i:04d}", "first_name": rnd.choice(FIRST),
-                     "last_name": rnd.choice(LAST), "email": f"prof{i}@ecole.test"} for i in range(1, 41)]
-        TeacherRepository(db).bulk_insert(teachers)
+        employees = []
+        for i in range(1, 41):
+            employees.append({
+                "employee_no": f"E{i:04d}",
+                "first_name": rnd.choice(FIRST),
+                "last_name": rnd.choice(LAST),
+                "gender": rnd.choice("MF"),
+                "birth_date": (date(1975, 1, 1) + timedelta(days=rnd.randint(0, 10000))).isoformat(),
+                "position": rnd.choice(POSITIONS),
+                "hire_date": (date(2015, 1, 1) + timedelta(days=rnd.randint(0, 3000))).isoformat(),
+            })
+        TeacherRepository(db).bulk_insert(employees)
         sections = max(1, (n_students + school.DEFAULT_CAPACITY - 1) // school.DEFAULT_CAPACITY)
         classes = [{"name": f"Classe {section:03d}",
                     "school_year": school.current_school_year(), "capacity": 45,
                     "main_teacher_id": rnd.randint(1, 40)}
                    for section in range(1, sections + 1)]
         ClassRepository(db).bulk_insert(classes)
-        SubjectRepository(db).bulk_insert([{"code": c, "name": n, "coefficient": k,
-                                            "teacher_id": rnd.randint(1, 40)} for c, n, k in SUBJECTS])
         students = []
         for i in range(1, n_students + 1):
             students.append({
@@ -50,10 +53,24 @@ def main(n_students: int) -> None:
                 "birth_date": (date(2008, 1, 1) + timedelta(days=rnd.randint(0, 4000))).isoformat(),
                 "gender": rnd.choice("MF"), "class_id": (i - 1) % len(classes) + 1, "status": "active"})
         StudentRepository(db).bulk_insert(students)
-        grades = [(sid, sub, 1, round(rnd.uniform(4, 20), 2))
-                  for sid in range(1, n_students + 1) for sub in range(1, len(SUBJECTS) + 1)]
-        db.executemany("INSERT INTO grades(student_id, subject_id, term, value) VALUES (?,?,?,?)", grades)
-    print(f"{n_students} élèves, {len(grades)} notes insérés en {time.perf_counter() - t0:.1f}s")
+        salaries = [(eid, rnd.randint(300_000, 2_500_000)) for eid in range(1, 41)]
+        db.executemany("INSERT INTO employee_salaries(employee_id, monthly_amount) VALUES (?,?)", salaries)
+        today = date.today()
+        attendance = []
+        for day_offset in range(7):
+            d = (today - timedelta(days=day_offset)).isoformat()
+            for eid in range(1, 41):
+                status = rnd.choices(["present", "late", "absent"], weights=[85, 10, 5])[0]
+                if status == "absent":
+                    attendance.append((eid, d, status, None, None))
+                else:
+                    arrival = f"{7 + rnd.randint(0, 1):02d}:{rnd.randint(0, 59):02d}"
+                    departure = f"{16 + rnd.randint(0, 2):02d}:{rnd.randint(0, 59):02d}"
+                    attendance.append((eid, d, status, arrival, departure))
+        db.executemany(
+            "INSERT INTO employee_attendance(employee_id, attendance_date, status, arrival_time, departure_time) "
+            "VALUES (?,?,?,?,?)", attendance)
+    print(f"{n_students} élèves, 40 employés, salaires et pointages insérés en {time.perf_counter() - t0:.1f}s")
     print("Lancez l'application : le premier démarrage vous demandera de créer l'administrateur.")
 
 

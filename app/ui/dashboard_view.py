@@ -31,11 +31,23 @@ class DashboardView(QWidget):
         except Exception as e:
             return handle_error(self, e)
         while self.grid.count():
-            self.grid.takeAt(0).widget().deleteLater()
-        cards = [("Élèves actifs", d["students"]), ("Classes", d["classes"]), ("Enseignants", d["teachers"])]
+            item = self.grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        cards = [
+            ("Élèves actifs", d["students"]),
+            ("Classes", d["classes"]),
+            ("Employés", d["employees"]),
+        ]
+        if "present_today" in d:
+            cards.append(("Présents aujourd'hui", d["present_today"]))
+        if "salary_total" in d:
+            cards.append(("Masse salariale / mois", school.fmt_ar(d["salary_total"])))
         if "collected_year" in d:
-            cards += [(f"Encaissé ({d['school_year']})", school.fmt_ar(d["collected_year"])),
-                      ("Encaissé ce mois", school.fmt_ar(d["collected_month"]))]
+            cards += [
+                (f"Encaissé ({d['school_year']})", school.fmt_ar(d["collected_year"])),
+                ("Encaissé ce mois", school.fmt_ar(d["collected_month"])),
+            ]
         for i, (title, value) in enumerate(cards):
             self.grid.addWidget(_card(title, value), i // 3, i % 3)
         self.grid.setRowStretch(len(cards) // 3 + 1, 1)

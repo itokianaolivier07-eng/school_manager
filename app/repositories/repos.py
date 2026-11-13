@@ -28,7 +28,8 @@ class TeacherRepository(BaseRepository):
                "phone", "address", "position", "hire_date")
     search_fields = ("t.last_name", "t.first_name", "t.employee_no")
     sort_fields = {"last_name": "t.last_name", "first_name": "t.first_name",
-                   "employee_no": "t.employee_no", "position": "t.position"}
+                   "employee_no": "t.employee_no", "position": "t.position",
+                   "hire_date": "t.hire_date"}
     default_sort = "t.last_name"
 
 
@@ -40,18 +41,37 @@ class ClassRepository(BaseRepository):
     joins = "LEFT JOIN teachers m ON m.id = t.main_teacher_id"
     search_fields = ("t.name",)
     sort_fields = {"name": "t.name", "school_year": "t.school_year",
-                   "student_count": "student_count", "capacity": "t.capacity"}
+                   "student_count": "student_count", "capacity": "t.capacity",
+                   "employee": "employee"}
     default_sort = "t.name"
 
 
-class SubjectRepository(BaseRepository):
-    table = "subjects"
-    columns = ("code", "name", "coefficient", "teacher_id")
-    extra_cols = ", (m.last_name || ' ' || m.first_name) AS teacher_name"
-    joins = "LEFT JOIN teachers m ON m.id = t.teacher_id"
-    search_fields = ("t.code", "t.name")
-    sort_fields = {"code": "t.code", "name": "t.name", "coefficient": "t.coefficient"}
-    default_sort = "t.name"
+class AttendanceRepository(BaseRepository):
+    table = "employee_attendance"
+    columns = ("employee_id", "attendance_date", "status", "arrival_time", "departure_time", "comment")
+    extra_cols = (", (e.employee_no || ' — ' || e.last_name || ' ' || e.first_name) AS employee_label,"
+                  " e.employee_no, e.last_name, e.first_name")
+    joins = "LEFT JOIN teachers e ON e.id = t.employee_id"
+    search_fields = ("e.last_name", "e.first_name", "e.employee_no", "t.attendance_date")
+    sort_fields = {"attendance_date": "t.attendance_date", "employee_label": "e.last_name",
+                   "status": "t.status", "arrival_time": "t.arrival_time"}
+    default_sort = "t.attendance_date"
+
+
+class SalaryRepository(BaseRepository):
+    table = "employee_salaries"
+    columns = ("employee_id", "monthly_amount")
+    extra_cols = (", (e.employee_no || ' — ' || e.last_name || ' ' || e.first_name) AS employee_label,"
+                  " e.employee_no, e.last_name, e.first_name, e.position")
+    joins = "LEFT JOIN teachers e ON e.id = t.employee_id"
+    search_fields = ("e.last_name", "e.first_name", "e.employee_no")
+    sort_fields = {"employee_label": "e.last_name", "monthly_amount": "t.monthly_amount",
+                   "updated_at": "t.updated_at"}
+    default_sort = "e.last_name"
+
+    def _select(self):
+        return (f"SELECT t.id, t.employee_id, t.monthly_amount, t.updated_at"
+                f"{self.extra_cols} FROM {self.table} t {self.joins}")
 
 
 class UserRepository(BaseRepository):
@@ -98,8 +118,9 @@ class AuditRepository(BaseRepository):
     default_sort = "t.id"
 
     def log(self, user, action, entity=None, entity_id=None, details=None, username=None):
+        uname = username or (user.username if user else None)
+        uid = user.id if user else None
         self.db.execute(
             "INSERT INTO audit_log(user_id, username, action, entity, entity_id, details) "
             "VALUES (?,?,?,?,?,?)",
-            (user.id if user else None, user.username if user else username,
-             action, entity, entity_id, details))
+            (uid, uname, action, entity, entity_id, details))

@@ -20,7 +20,10 @@ CORE_FEE_CODES = ("droit", "photocopie", "tenue")
 ACTIVITY_FEE_CODES = (
     "activity_1", "activity_2", "activity_3", "activity_4", "activity_5",
 )
-MONTH_FEE_CODES = {month: MONTH_NAMES[month].lower() for month in SCHOOL_MONTHS}
+MONTH_FEE_CODES = {
+    9: "september", 10: "october", 11: "november", 12: "december",
+    1: "january", 2: "february", 3: "march", 4: "april", 5: "may", 6: "june",
+}
 MONTHS_BY_FEE_CODE = {code: month for month, code in MONTH_FEE_CODES.items()}
 FEE_ITEM_LABELS = {
     **FIXED_FEE_ITEMS,

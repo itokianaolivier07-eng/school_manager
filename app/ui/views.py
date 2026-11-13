@@ -1,4 +1,3 @@
-"""Définition déclarative des écrans (colonnes + formulaires) : ajouter un module = ajouter une fonction."""
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from app.core.permissions import ROLE_LABELS
@@ -10,6 +9,7 @@ GENDERS = lambda: [("Masculin", "M"), ("Féminin", "F")]
 STATUS = lambda: [(v, k) for k, v in LABELS["status"].items()]
 ROLES = lambda: [(v, k) for k, v in ROLE_LABELS.items()]
 ACTIVE = lambda: [("Actif", 1), ("Inactif", 0)]
+ATTENDANCE_STATUS = lambda: [(v, k) for k, v in LABELS["attendance_status"].items()]
 
 
 def students_view(sv, ctx):
@@ -23,8 +23,7 @@ def students_view(sv, ctx):
               Field("tutor_name", "Tuteur", max_len=100),
               Field("father_name", "Nom du père", max_len=100),
               Field("mother_name", "Nom de la mère", max_len=100),
-              Field("tuition_discount", "Remise d'écolage (%)", "number", maximum=100, decimals=0, step=1,
-                    default=0),
+              Field("tuition_discount", "Remise d'écolage (%)", "number", maximum=100, decimals=0, step=1, default=0),
               Field("address", "Adresse", max_len=200),
               Field("class_id", "Classe", "combo", choices=sv.classes.options),
               Field("status", "Statut", "combo", required=True, choices=STATUS)]
@@ -34,8 +33,7 @@ def students_view(sv, ctx):
         if path:
             r = sv.students.import_csv(path)
             detail = "\n".join(f"Ligne {n} : {m}" for n, m in r.errors[:10])
-            QMessageBox.information(view, "Import terminé", f"{r.inserted} ajoutés, {r.duplicates} doublons, "
-                                    f"{len(r.errors)} erreurs.\n{detail}")
+            QMessageBox.information(view, "Import terminé", f"{r.inserted} ajoutés, {r.duplicates} doublons, {len(r.errors)} erreurs.\n{detail}")
             view.refresh()
 
     def export_csv(view):
@@ -63,7 +61,7 @@ def teachers_view(sv, ctx):
               Field("address", "Adresse", max_len=200),
               Field("position", "Poste", max_len=80),
               Field("hire_date", "Date d'embauche", "date", required=True)]
-    return CrudView(sv.teachers, columns, fields, ctx, noun="enseignant")
+    return CrudView(sv.teachers, columns, fields, ctx, noun="employé")
 
 
 def classes_view(sv, ctx):
@@ -71,20 +69,30 @@ def classes_view(sv, ctx):
                ("capacity", "Effectif max."), ("employee", "Employé")]
     fields = [Field("name", "Nom", required=True, max_len=40),
               Field("school_year", "Année scolaire (AAAA-AAAA)", required=True, max_len=9),
-              Field("capacity", "Effectif maximal", "number", minimum=1, maximum=80, decimals=0, step=1,
-                    default=45),
-              Field("main_teacher_id", "Employé", "combo", choices=sv.teachers.options
-                    if ctx.session.can("teachers.read") else None)]
+              Field("capacity", "Effectif maximal", "number", minimum=1, maximum=80, decimals=0, step=1, default=45),
+              Field("main_teacher_id", "Employé", "combo", choices=sv.teachers.options if ctx.session.can("teachers.read") else None)]
     return CrudView(sv.classes, columns, fields, ctx, noun="classe")
 
 
-def subjects_view(sv, ctx):
-    columns = [("code", "Code"), ("name", "Matière"), ("coefficient", "Coef."), ("teacher_name", "Enseignant")]
-    fields = [Field("code", "Code", required=True, max_len=20), Field("name", "Nom", required=True, max_len=80),
-              Field("coefficient", "Coefficient", "number", required=True, minimum=0.5, maximum=20),
-              Field("teacher_id", "Enseignant", "combo", choices=sv.teachers.options
-                    if ctx.session.can("teachers.read") else None)]
-    return CrudView(sv.subjects, columns, fields, ctx, noun="matière")
+def attendance_view(sv, ctx):
+    columns = [("attendance_date", "Date"), ("employee_label", "Employé"),
+               ("status", "Statut", LABELS["attendance_status"]),
+               ("arrival_time", "Arrivée"), ("departure_time", "Départ"), ("comment", "Commentaire")]
+    fields = [Field("employee_id", "Employé", "combo", required=True, choices=sv.teachers.options if ctx.session.can("teachers.read") else None),
+              Field("attendance_date", "Date de pointage", "date", required=True),
+              Field("status", "Statut", "combo", required=True, choices=ATTENDANCE_STATUS),
+              Field("arrival_time", "Heure d'arrivée (HH:MM)", max_len=8),
+              Field("departure_time", "Heure de départ (HH:MM)", max_len=8),
+              Field("comment", "Commentaire", max_len=200)]
+    return CrudView(sv.attendance, columns, fields, ctx, noun="pointage")
+
+
+def salaries_view(sv, ctx):
+    columns = [("employee_label", "Employé"), ("position", "Poste"),
+               ("monthly_amount", "Salaire mensuel"), ("updated_at", "Mis à jour")]
+    fields = [Field("employee_id", "Employé", "combo", required=True, choices=sv.teachers.options if ctx.session.can("teachers.read") else None),
+              Field("monthly_amount", "Salaire mensuel", "number", required=True, minimum=1, maximum=50_000_000, decimals=0, step=1000)]
+    return CrudView(sv.salaries, columns, fields, ctx, noun="salaire")
 
 
 def users_view(sv, ctx):
