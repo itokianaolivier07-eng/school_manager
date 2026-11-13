@@ -22,7 +22,4 @@ def ensure_dirs() -> None:
     """Crée les dossiers de données, accessibles uniquement par l'utilisateur."""
     for d in (DATA_DIR, BACKUP_DIR, LOG_DIR):
         d.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(d, 0o700)
-        except OSError:
-            pass
+        os.chmod(d, 0o700)

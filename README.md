@@ -1,13 +1,22 @@
-# SchoolManager — gestion d'école (Python · PyQt6 · SQLite)
+# SchoolManager
 
-## Lancer
+Application de bureau de gestion d'un collège, écrite en Python avec PyQt6 et SQLite.
+
+## Installation et lancement
 ```bash
 pip install -r requirements.txt
-python -m scripts.seed_demo --students 30000   # optionnel : données de test (30 000 élèves, 240 000 notes)
-python main.py                                  # 1er lancement : création de l'administrateur
-python -m pytest                                # tests
+python main.py
 ```
-Données dans `~/.school_manager/` (changer avec la variable `SCHOOL_DATA_DIR`).
+
+Au premier lancement, l'application demande la création du compte administrateur. Les données sont stockées dans
+`~/.school_manager/`. La variable `SCHOOL_DATA_DIR` permet de choisir un autre emplacement.
+
+Pour générer des données de démonstration dans une base vide :
+```bash
+python -m scripts.seed_demo --students 30000
+```
+
+Les tests se lancent avec `python -m pytest`.
 
 ## Architecture (couches, dépendances vers le bas uniquement)
 ```
@@ -18,18 +27,21 @@ app/repositories/            SQL paramétré uniquement                         
 app/database/                connexion SQLite durcie, migrations versionnées
 app/core/                    sécurité (scrypt), RBAC, session, validateurs, exceptions
 ```
-Modules : élèves (import/export CSV), enseignants, classes, matières, notes (saisie, moyennes pondérées,
-classement), utilisateurs, journal d'audit, sauvegardes.
+Fonctions : tableau de bord, élèves (import/export CSV), enseignants, classes, matières, notes et classements,
+tarifs scolaires, encaissements, reçus PDF, annulations, impayés, utilisateurs, journal d'audit et sauvegardes.
+Les niveaux proposés sont ceux du collège malgache (6e à 3e). Les coordonnées historiques des élèves restent dans
+les bases déjà créées, mais ne sont plus affichées ni exportées.
 
 ## Sécurité
 - Mots de passe : scrypt + sel aléatoire, comparaison à temps constant, politique de complexité.
 - Connexion : verrouillage après 5 échecs (5 min), message identique si l'utilisateur n'existe pas, déconnexion après 15 min d'inactivité, changement de mot de passe forcé pour les comptes créés par un admin.
 - Pas de mot de passe par défaut : l'admin est créé au premier lancement.
-- RBAC (admin / secrétariat / enseignant) vérifié dans **chaque service** (pas seulement dans l'interface).
+- Accès par rôle (administrateur / secrétariat / enseignant), vérifié dans les services et dans l'interface.
 - SQL : requêtes paramétrées, tri en liste blanche, `LIKE` échappé ; contraintes CHECK/UNIQUE/FOREIGN KEY en base.
 - Journal d'audit en ajout seul (triggers qui interdisent UPDATE/DELETE) ; aucun mot de passe journalisé.
 - Fichiers de données en 0600 / dossiers 0700, `secure_delete`, `trusted_schema=OFF`, export CSV protégé contre l'injection de formules, import limité à 25 Mo.
 - Sauvegarde à chaud avec contrôle d'intégrité et rotation.
+- Les paiements enregistrés sont conservés ; une erreur se traite par une annulation motivée.
 - Limite connue : SQLite standard n'est pas chiffré ; pour chiffrer au repos, utiliser SQLCipher ou le chiffrement du disque (BitLocker/LUKS).
 
 ## Performance (30 000+ élèves)

@@ -16,6 +16,9 @@ class Field:
     max_len: int = 100
     minimum: float = 0.0
     maximum: float = 20.0
+    decimals: int = 2
+    step: float = 0.5
+    default: Optional[float] = None
 
 
 class FormDialog(QDialog):
@@ -60,10 +63,11 @@ class FormDialog(QDialog):
             return w
         if f.kind == "number":
             w = QDoubleSpinBox()
-            w.setDecimals(2)
+            w.setDecimals(f.decimals)
             w.setRange(f.minimum, f.maximum)
-            w.setSingleStep(0.5)
-            w.setValue(float(value) if value not in (None, "") else max(f.minimum, 1.0))
+            w.setSingleStep(f.step)
+            default = f.default if f.default is not None else max(f.minimum, 1.0)
+            w.setValue(float(value) if value not in (None, "") else default)
             return w
         w = QComboBox()   # combo
         if not f.required:

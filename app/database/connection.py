@@ -16,6 +16,7 @@ class Database:
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
             if not os.path.exists(self.path):  # fichier créé en 0600
                 os.close(os.open(self.path, os.O_CREAT | os.O_WRONLY, 0o600))
+            os.chmod(self.path, 0o600)
         self.conn = sqlite3.connect(self.path, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
         self._depth = 0

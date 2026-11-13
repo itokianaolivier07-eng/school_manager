@@ -16,15 +16,20 @@ class BackupService:
     def backup(self) -> str:
         user = self.ctx.session.require("backup.run")
         config.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        dest = config.BACKUP_DIR / f"school_{datetime.now():%Y%m%d_%H%M%S}.db"
-        os.close(os.open(dest, os.O_CREAT | os.O_WRONLY, 0o600))
-        target = sqlite3.connect(dest)
+        dest = config.BACKUP_DIR / f"school_{datetime.now():%Y%m%d_%H%M%S_%f}.db"
+        fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)
         try:
-            self.ctx.db.conn.backup(target)
-            if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise AppError("La sauvegarde créée est corrompue.")
-        finally:
-            target.close()
+            target = sqlite3.connect(dest)
+            try:
+                self.ctx.db.conn.backup(target)
+                if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise AppError("La sauvegarde créée est corrompue.")
+            finally:
+                target.close()
+        except Exception:
+            dest.unlink(missing_ok=True)
+            raise
         old = sorted(config.BACKUP_DIR.glob("school_*.db"))[:-config.BACKUP_KEEP]
         for f in old:
             f.unlink(missing_ok=True)

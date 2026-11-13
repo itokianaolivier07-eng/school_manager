@@ -1,6 +1,8 @@
 """Migrations versionnées (PRAGMA user_version)."""
 import logging
 
+from app.database.migration2 import MIGRATION_2
+
 log = logging.getLogger(__name__)
 
 MIGRATION_1 = """
@@ -99,7 +101,7 @@ CREATE TRIGGER trg_audit_no_delete BEFORE DELETE ON audit_log
 BEGIN SELECT RAISE(ABORT, 'audit_log est en lecture seule'); END;
 """
 
-MIGRATIONS = [(1, MIGRATION_1)]
+MIGRATIONS = [(1, MIGRATION_1), (2, MIGRATION_2)]
 
 
 def migrate(db) -> None:

@@ -13,6 +13,7 @@ from app.database.schema import migrate
 from app.services import Services
 from app.ui.dialogs import ChangePasswordDialog, LoginDialog, SetupDialog
 from app.ui.main_window import MainWindow
+from app.ui.theme import apply_theme
 
 
 class ActivityFilter(QObject):
@@ -32,30 +33,33 @@ def main() -> int:
     config.ensure_dirs()
     setup_logging()
     db = Database(config.DB_PATH)
-    migrate(db)
-    app = QApplication(sys.argv)
-    app.setApplicationName(config.APP_NAME)
-    session = Session(config.SESSION_TIMEOUT_SECONDS)
-    ctx = AppContext(db, session)
-    services = Services(ctx)
-    activity = ActivityFilter(session)
-    app.installEventFilter(activity)
+    try:
+        migrate(db)
+        app = QApplication(sys.argv)
+        app.setApplicationName(config.APP_NAME)
+        apply_theme(app)
+        session = Session(config.SESSION_TIMEOUT_SECONDS)
+        ctx = AppContext(db, session)
+        services = Services(ctx)
+        activity = ActivityFilter(session)
+        app.installEventFilter(activity)
 
-    if not services.auth.has_users() and SetupDialog(services.auth).exec() != QDialog.DialogCode.Accepted:
-        return 0
-    while True:
-        if LoginDialog(services.auth).exec() != QDialog.DialogCode.Accepted:
-            break
-        if session.user.must_change_password and \
-                ChangePasswordDialog(services.auth, forced=True).exec() != QDialog.DialogCode.Accepted:
-            services.auth.logout()
-            continue
-        window = MainWindow(services, ctx)
-        window.show()
-        app.exec()
-        if not window.relogin:
-            break
-    db.close()
+        if not services.auth.has_users() and SetupDialog(services.auth).exec() != QDialog.DialogCode.Accepted:
+            return 0
+        while True:
+            if LoginDialog(services.auth).exec() != QDialog.DialogCode.Accepted:
+                break
+            if session.user.must_change_password and \
+                    ChangePasswordDialog(services.auth, forced=True).exec() != QDialog.DialogCode.Accepted:
+                services.auth.logout()
+                continue
+            window = MainWindow(services, ctx)
+            window.show()
+            app.exec()
+            if not window.relogin:
+                break
+    finally:
+        db.close()
     return 0
 
 

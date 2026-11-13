@@ -1,12 +1,15 @@
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QListWidget, QMainWindow, QMessageBox, QStackedWidget,
-                             QWidget)
+from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QListWidget, QMainWindow, QMessageBox,
+                             QStackedWidget, QVBoxLayout, QWidget)
 
 from app.core.permissions import ROLE_LABELS
 from app.ui import views
+from app.ui.dashboard_view import DashboardView
 from app.ui.dialogs import ChangePasswordDialog
+from app.ui.fees_view import FeesView
 from app.ui.grades_view import GradesView
+from app.ui.toast import show_toast
 from app.ui.utils import handle_error
 
 
@@ -17,28 +20,42 @@ class MainWindow(QMainWindow):
         self.relogin = False
         user = ctx.session.user
         self.setWindowTitle("Gestion d'école")
-        self.resize(1150, 700)
+        self.resize(1250, 760)
         self.statusBar().showMessage(f"{user.full_name} — {ROLE_LABELS.get(user.role, user.role)}")
 
-        pages = [("Élèves", "students.read", lambda: views.students_view(services, ctx)),
-                 ("Enseignants", "teachers.read", lambda: views.teachers_view(services, ctx)),
-                 ("Classes", "classes.read", lambda: views.classes_view(services, ctx)),
-                 ("Matières", "subjects.read", lambda: views.subjects_view(services, ctx)),
-                 ("Notes", "grades.read", lambda: GradesView(services, ctx)),
-                 ("Utilisateurs", "users.manage", lambda: views.users_view(services, ctx)),
-                 ("Journal d'audit", "audit.read", lambda: views.audit_view(services, ctx))]
-        self.nav, self.stack = QListWidget(), QStackedWidget()
-        self.nav.setFixedWidth(190)
-        for title, perm, factory in pages:
+        pages = [("Tableau de bord", "Tableau de bord", "dashboard.read", lambda: DashboardView(services, ctx)),
+                 ("Élèves", "Élèves", "students.read", lambda: views.students_view(services, ctx)),
+                 ("Enseignants", "Enseignants", "teachers.read", lambda: views.teachers_view(services, ctx)),
+                 ("Classes", "Classes", "classes.read", lambda: views.classes_view(services, ctx)),
+                 ("Matières", "Matières", "subjects.read", lambda: views.subjects_view(services, ctx)),
+                 ("Notes", "Notes et résultats", "grades.read", lambda: GradesView(services, ctx)),
+                 ("Écolages", "Écolages", "payments.read", lambda: FeesView(services, ctx)),
+                 ("Utilisateurs", "Utilisateurs", "users.manage", lambda: views.users_view(services, ctx)),
+                 ("Journal d'audit", "Journal d'audit", "audit.read", lambda: views.audit_view(services, ctx))]
+        self.nav, self.stack, self.titles = QListWidget(), QStackedWidget(), []
+        self.nav.setObjectName("nav")
+        self.nav.setFixedWidth(220)
+        for label, title, perm, factory in pages:
             if ctx.session.can(perm):        # le menu n'affiche que ce que le rôle autorise
-                self.nav.addItem(title)
+                self.nav.addItem(label)
+                self.titles.append(title)
                 self.stack.addWidget(factory())
-        self.nav.currentRowChanged.connect(self._on_page)
+        self.page_title = QLabel()
+        self.page_title.setObjectName("pageTitle")
+        right = QWidget()
+        right.setObjectName("page")
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(24, 18, 24, 18)
+        rl.addWidget(self.page_title)
+        rl.addWidget(self.stack, 1)
         central = QWidget()
         lay = QHBoxLayout(central)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
         lay.addWidget(self.nav)
-        lay.addWidget(self.stack, 1)
+        lay.addWidget(right, 1)
         self.setCentralWidget(central)
+        self.nav.currentRowChanged.connect(self._on_page)
         self.nav.setCurrentRow(0)
 
         menu = self.menuBar().addMenu("Compte")
@@ -59,15 +76,18 @@ class MainWindow(QMainWindow):
     def _on_page(self, i):
         w = self.stack.widget(i)
         self.stack.setCurrentIndex(i)
+        self.page_title.setText(self.titles[i] if 0 <= i < len(self.titles) else "")
         if w is not None and hasattr(w, "refresh"):
             w.refresh()
 
     def change_password(self):
-        ChangePasswordDialog(self.sv.auth).exec()
+        if ChangePasswordDialog(self.sv.auth).exec() == QDialog.DialogCode.Accepted:
+            show_toast(self, "Mot de passe modifié")
 
     def backup(self):
         try:
-            QMessageBox.information(self, "Sauvegarde", f"Sauvegarde créée :\n{self.sv.backup.backup()}")
+            path = self.sv.backup.backup()
+            QMessageBox.information(self, "Sauvegarde", f"Sauvegarde créée :\n{path}")
         except Exception as e:
             handle_error(self, e)
 

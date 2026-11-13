@@ -7,12 +7,13 @@ from pathlib import Path
 
 from app import config
 from app.core import validators as V
+from app.core import school
 from app.core.exceptions import AppError, ValidationError
 from app.repositories.repos import StudentRepository
 from app.services.base import CrudService
 
-EXPORT_COLS = ("matricule", "last_name", "first_name", "birth_date", "gender", "email", "phone",
-               "address", "class_name", "status")
+EXPORT_COLS = ("matricule", "last_name", "first_name", "birth_date", "gender", "guardian_name",
+               "tuition_discount", "address", "class_name", "status")
 STATUSES = ("active", "suspended", "graduated", "left")
 
 
@@ -42,8 +43,8 @@ class StudentService(CrudService):
             "last_name": V.text(data, "last_name", "Nom", max_len=60, pattern=V.NAME_RE),
             "birth_date": self._birth_date(data),
             "gender": V.choice(data, "gender", "Genre", ("M", "F"), required=False),
-            "email": V.text(data, "email", "E-mail", required=False, max_len=120, pattern=V.EMAIL_RE),
-            "phone": V.text(data, "phone", "Téléphone", required=False, max_len=20, pattern=V.PHONE_RE),
+            "guardian_name": V.text(data, "guardian_name", "Responsable légal", required=False, max_len=100),
+            "tuition_discount": V.integer(data, "tuition_discount", "Remise", minimum=0, maximum=100) or 0,
             "address": V.text(data, "address", "Adresse", required=False, max_len=200),
             "class_id": V.integer(data, "class_id", "Classe", minimum=1),
             "status": V.choice(data, "status", "Statut", STATUSES, default="active"),
@@ -53,7 +54,7 @@ class StudentService(CrudService):
     def _birth_date(data):
         d = V.date_iso(data, "birth_date", "Date de naissance")
         age = (date.today() - date.fromisoformat(d)).days / 365.25
-        if not 2 <= age <= 100:
+        if not school.MIN_AGE <= age <= school.MAX_AGE:
             raise ValidationError("Date de naissance : âge hors limites.")
         return d
 
@@ -118,6 +119,7 @@ class StudentService(CrudService):
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         n = 0
         with os.fdopen(fd, "w", newline="", encoding="utf-8-sig") as f:
+            os.fchmod(f.fileno(), 0o600)
             w = csv.writer(f)
             w.writerow(EXPORT_COLS)
             cur = self.db.conn.execute(sql, params)

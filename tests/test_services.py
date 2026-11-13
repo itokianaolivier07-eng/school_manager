@@ -1,9 +1,15 @@
+import os
+import sqlite3
+import stat
 import time
+from datetime import date
 
 import pytest
 
 from app import config
-from app.core.exceptions import AuthenticationError, DuplicateError, ValidationError
+from app.core.exceptions import AuthenticationError, DuplicateError, PermissionDenied, ValidationError
+from app.database.connection import Database
+from app.database.schema import MIGRATION_1, migrate
 from app.repositories.repos import AuditRepository
 from tests.conftest import make_env
 
@@ -17,10 +23,39 @@ def test_create_student_autogenerates_matricule(env):
     assert row["matricule"].startswith("E") and row["status"] == "active"
 
 
+def test_student_schema_and_legacy_contact_privacy(env):
+    ctx, svc = env
+    assert ctx.db.one("PRAGMA user_version")[0] == 2
+    columns = {row["name"] for row in ctx.db.all("PRAGMA table_info(students)")}
+    assert {"guardian_name", "tuition_discount", "email", "phone"} <= columns
+
+    student_id = svc.students.create({**VALID, "email": "ancien@example.test"})
+    assert "email" not in svc.students.get(student_id)
+    assert "phone" not in svc.students.get(student_id)
+
+
+def test_migration_from_existing_database_preserves_student_data():
+    db = Database()
+    try:
+        db.conn.executescript(f"{MIGRATION_1}\nPRAGMA user_version=1;")
+        db.execute(
+            "INSERT INTO students (matricule, first_name, last_name, birth_date, email, phone) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("E1", "Miora", "Rakoto", "2010-05-12", "ancien@example.test", "12345678"))
+
+        migrate(db)
+
+        row = db.one("SELECT email, phone, guardian_name, tuition_discount FROM students WHERE matricule='E1'")
+        assert tuple(row) == ("ancien@example.test", "12345678", None, 0)
+        assert db.one("PRAGMA user_version")[0] == 2
+    finally:
+        db.close()
+
+
 def test_validation_rejects_bad_input(env):
     _, svc = env
     for bad in ({**VALID, "first_name": "<script>"}, {**VALID, "birth_date": "2999-01-01"},
-                {**VALID, "email": "pas-un-email"}, {**VALID, "gender": "X"}):
+                {**VALID, "birth_date": "2020-01-01"}, {**VALID, "gender": "X"}):
         with pytest.raises(ValidationError):
             svc.students.create(bad)
 
@@ -112,6 +147,59 @@ def test_grades_and_ranking(env):
         svc.grades.save_sheet(cid, sub, 1, [(ids[0], 25, None)])
 
 
+def test_fees_and_payments(env):
+    ctx, svc = env
+    year = "2026-2027"
+    class_id = svc.classes.create({"name": "6e-A", "level": "6e", "school_year": year})
+    student_id = svc.students.create({**VALID, "class_id": class_id, "tuition_discount": 20})
+    svc.fees.create({"level": "6e", "school_year": year, "monthly_amount": 2500,
+                     "registration_fee": 1000})
+
+    statement = svc.payments.statement(student_id)
+    assert statement["rows"][0]["due"] == 1000
+    assert statement["rows"][1]["due"] == 2000
+
+    payment_id, receipt = svc.payments.record(
+        student_id, {"kind": "registration", "amount": 1000, "method": "cash"})
+    assert receipt.startswith("R2026-")
+    assert svc.payments.statement(student_id)["total_paid"] == 1000
+
+    svc.payments.cancel(payment_id, "Erreur de saisie")
+    assert svc.payments.receipt_data(payment_id)["cancelled"] == 1
+    assert svc.payments.statement(student_id)["total_paid"] == 0
+    with pytest.raises(sqlite3.IntegrityError, match="Paiement non modifiable"):
+        ctx.db.execute("UPDATE payments SET amount = 500 WHERE id = ?", (payment_id,))
+
+
+def test_arrears_respect_the_class_school_year(env):
+    _, svc = env
+    old_year = "2025-2026"
+    future_year = "2027-2028"
+    old_class = svc.classes.create({"name": "6e-ancienne", "level": "6e", "school_year": old_year})
+    future_class = svc.classes.create({"name": "6e-future", "level": "6e", "school_year": future_year})
+    svc.students.create({**VALID, "class_id": old_class})
+    svc.students.create({**VALID, "first_name": "Aina", "class_id": future_class})
+    svc.fees.create({"level": "6e", "school_year": old_year, "monthly_amount": 1000})
+    svc.fees.create({"level": "6e", "school_year": future_year, "monthly_amount": 1000})
+
+    arrears = svc.payments.arrears(old_class, date(2026, 9, 15))
+    assert arrears[0]["due"] == 9000
+    assert svc.payments.arrears(future_class, date(2026, 9, 15)) == []
+
+
+def test_dashboard_and_billing_permissions():
+    from tests.conftest import make_env
+
+    _, admin = make_env("admin")
+    _, secretary = make_env("secretary")
+    _, teacher = make_env("teacher")
+    assert "collected_year" in admin.dashboard.summary()
+    assert "collected_year" in secretary.dashboard.summary()
+    assert "collected_year" not in teacher.dashboard.summary()
+    with pytest.raises(PermissionDenied):
+        teacher.payments.statement(1)
+
+
 def test_csv_import_export_and_formula_injection(env, tmp_path):
     ctx, svc = env
     f = tmp_path / "in.csv"
@@ -123,5 +211,19 @@ def test_csv_import_export_and_formula_injection(env, tmp_path):
     svc.students.update(1, {"first_name": "Anna", "last_name": "Rabe", "birth_date": "2010-01-01",
                             "address": "=HYPERLINK(\"http://x\")"})
     out = tmp_path / "out.csv"
+    out.write_text("ancienne exportation", encoding="utf-8")
+    out.chmod(0o644)
     assert svc.students.export_csv(out) == 1
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
     assert "'=HYPERLINK" in out.read_text(encoding="utf-8-sig")
+
+
+def test_backups_are_private_and_use_unique_names(env, tmp_path, monkeypatch):
+    _, svc = env
+    monkeypatch.setattr(config, "BACKUP_DIR", tmp_path)
+
+    first = svc.backup.backup()
+    second = svc.backup.backup()
+
+    assert first != second
+    assert stat.S_IMODE(os.stat(first).st_mode) == 0o600

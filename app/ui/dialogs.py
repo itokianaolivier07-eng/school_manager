@@ -47,6 +47,7 @@ class LoginDialog(_BaseDialog):
         self.user, self.pwd = self._line(max_len=50), self._line(True)
         self.form.addRow("Identifiant", self.user)
         self.form.addRow("Mot de passe", self.pwd)
+        self.user.setFocus()
 
     def on_submit(self):
         try:

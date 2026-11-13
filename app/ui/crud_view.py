@@ -20,6 +20,7 @@ class CrudView(QWidget):
         self.model = RowsModel(columns)
 
         self.search = QLineEdit()
+        self.search.setObjectName("searchField")
         self.search.setPlaceholderText("Rechercher (début du nom, matricule…)")
         self.search.setMaxLength(100)
         self.search.setClearButtonEnabled(True)
@@ -35,6 +36,8 @@ class CrudView(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -44,6 +47,7 @@ class CrudView(QWidget):
         self.table.doubleClicked.connect(lambda _i: self.edit())
 
         top = QHBoxLayout()
+        top.setSpacing(8)
         top.addWidget(self.search, 1)
         s = ctx.session
         can_write = not read_only and s.can(service.write_perm)
@@ -52,24 +56,32 @@ class CrudView(QWidget):
                                      ("Supprimer", self.remove, can_delete)):
             if allowed:
                 b = QPushButton(label)
+                b.setObjectName("primaryButton" if label == "Ajouter" else "secondaryButton")
                 b.clicked.connect(slot)
                 top.addWidget(b)
         for label, callback, perm in extra_actions:
             if s.can(perm):
                 b = QPushButton(label)
+                b.setObjectName("secondaryButton")
                 b.clicked.connect(lambda _checked=False, cb=callback: self._run(cb))
                 top.addWidget(b)
 
-        self.prev_btn, self.next_btn = QPushButton("◀"), QPushButton("▶")
+        self.prev_btn, self.next_btn = QPushButton("Précédent"), QPushButton("Suivant")
+        for button in (self.prev_btn, self.next_btn):
+            button.setObjectName("secondaryButton")
+            button.setMinimumWidth(88)
         self.prev_btn.clicked.connect(lambda: self._go(-1))
         self.next_btn.clicked.connect(lambda: self._go(1))
         self.info = QLabel()
+        self.info.setObjectName("resultInfo")
         bottom = QHBoxLayout()
         bottom.addWidget(self.info, 1)
         bottom.addWidget(self.prev_btn)
         bottom.addWidget(self.next_btn)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
         layout.addLayout(top)
         layout.addWidget(self.table, 1)
         layout.addLayout(bottom)

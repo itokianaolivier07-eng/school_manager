@@ -2,6 +2,7 @@
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from app.core.permissions import ROLE_LABELS
+from app.core import school
 from app.ui.crud_view import CrudView
 from app.ui.forms import Field
 from app.ui.utils import LABELS
@@ -20,7 +21,9 @@ def students_view(sv, ctx):
               Field("first_name", "Prénom", required=True, max_len=60),
               Field("birth_date", "Date de naissance", "date", required=True),
               Field("gender", "Genre", "combo", choices=GENDERS),
-              Field("email", "E-mail", max_len=120), Field("phone", "Téléphone", max_len=20),
+              Field("guardian_name", "Responsable légal", max_len=100),
+              Field("tuition_discount", "Remise d'écolage (%)", "number", maximum=100, decimals=0, step=1,
+                    default=0),
               Field("address", "Adresse", max_len=200),
               Field("class_id", "Classe", "combo", choices=sv.classes.options),
               Field("status", "Statut", "combo", required=True, choices=STATUS)]
@@ -58,9 +61,12 @@ def teachers_view(sv, ctx):
 
 def classes_view(sv, ctx):
     columns = [("name", "Classe"), ("level", "Niveau"), ("school_year", "Année"),
-               ("student_count", "Élèves"), ("main_teacher", "Titulaire")]
-    fields = [Field("name", "Nom", required=True, max_len=40), Field("level", "Niveau", max_len=40),
+               ("student_count", "Élèves"), ("capacity", "Effectif max."), ("main_teacher", "Titulaire")]
+    fields = [Field("name", "Nom", required=True, max_len=40),
+              Field("level", "Niveau", "combo", choices=lambda: [(level, level) for level in school.LEVELS]),
               Field("school_year", "Année scolaire (AAAA-AAAA)", required=True, max_len=9),
+              Field("capacity", "Effectif maximal", "number", minimum=1, maximum=80, decimals=0, step=1,
+                    default=45),
               Field("main_teacher_id", "Titulaire", "combo", choices=sv.teachers.options
                     if ctx.session.can("teachers.read") else None)]
     return CrudView(sv.classes, columns, fields, ctx, noun="classe")

@@ -1,4 +1,5 @@
 """Validation et nettoyage stricts des entrées (liste blanche)."""
+import math
 import re
 from datetime import date
 
@@ -43,6 +44,15 @@ def date_iso(data, key, label, *, required=True, min_year=1900, allow_future=Fal
     return d.isoformat()
 
 
+def school_year(data, key, label="Année scolaire"):
+    value = text(data, key, label, max_len=9, pattern=YEAR_RE,
+                 error=f"{label} : format AAAA-AAAA.")
+    start, end = (int(year) for year in value.split("-"))
+    if start < 1900 or end != start + 1:
+        raise ValidationError(f"{label} doit couvrir deux années consécutives.")
+    return value
+
+
 def choice(data, key, label, allowed, *, required=True, default=None):
     v = data.get(key)
     v = default if v in (None, "") else v
@@ -62,7 +72,17 @@ def integer(data, key, label, *, required=False, minimum=None, maximum=None):
             raise ValidationError(f"{label} est obligatoire.")
         return None
     try:
-        n = int(v)
+        if isinstance(v, bool):
+            raise ValueError
+        if isinstance(v, float):
+            if not math.isfinite(v) or not v.is_integer():
+                raise ValueError
+            n = int(v)
+        else:
+            raw = str(v).strip()
+            if not re.fullmatch(r"[+-]?[0-9]+", raw):
+                raise ValueError
+            n = int(raw)
     except (TypeError, ValueError):
         raise ValidationError(f"{label} doit être un entier.") from None
     if (minimum is not None and n < minimum) or (maximum is not None and n > maximum):

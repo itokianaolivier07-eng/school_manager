@@ -3,8 +3,8 @@ from app.repositories.base import BaseRepository
 
 class StudentRepository(BaseRepository):
     table = "students"
-    columns = ("matricule", "first_name", "last_name", "birth_date", "gender", "email",
-               "phone", "address", "class_id", "status")
+    columns = ("matricule", "first_name", "last_name", "birth_date", "gender", "guardian_name",
+               "tuition_discount", "address", "class_id", "status")
     extra_cols = ", c.name AS class_name"
     joins = "LEFT JOIN classes c ON c.id = t.class_id"
     search_fields = ("t.last_name", "t.first_name", "t.matricule")
@@ -12,6 +12,12 @@ class StudentRepository(BaseRepository):
                    "matricule": "t.matricule", "birth_date": "t.birth_date",
                    "class_name": "c.name", "status": "t.status"}
     default_sort = "t.last_name"
+
+    def _select(self):
+        return ("SELECT t.id, t.matricule, t.first_name, t.last_name, t.birth_date, t.gender, "
+                "t.guardian_name, t.tuition_discount, t.address, t.class_id, t.status, "
+                "t.created_at, t.updated_at" + self.extra_cols +
+                f" FROM {self.table} t {self.joins}")
 
 
 class TeacherRepository(BaseRepository):
@@ -25,13 +31,13 @@ class TeacherRepository(BaseRepository):
 
 class ClassRepository(BaseRepository):
     table = "classes"
-    columns = ("name", "level", "school_year", "main_teacher_id")
+    columns = ("name", "level", "school_year", "capacity", "main_teacher_id")
     extra_cols = (", (SELECT COUNT(*) FROM students s WHERE s.class_id = t.id) AS student_count,"
                   " (m.last_name || ' ' || m.first_name) AS main_teacher")
     joins = "LEFT JOIN teachers m ON m.id = t.main_teacher_id"
     search_fields = ("t.name", "t.level")
     sort_fields = {"name": "t.name", "level": "t.level", "school_year": "t.school_year",
-                   "student_count": "student_count"}
+                   "student_count": "student_count", "capacity": "t.capacity"}
     default_sort = "t.name"
 
 
@@ -52,7 +58,7 @@ class UserRepository(BaseRepository):
     sort_fields = {"username": "t.username", "full_name": "t.full_name", "role": "t.role"}
     default_sort = "t.username"
 
-    def _select(self):  # ne renvoie JAMAIS password_hash à la couche UI
+    def _select(self):
         return ("SELECT t.id, t.username, t.full_name, t.role, t.is_active, "
                 "t.must_change_password, t.created_at FROM users t")
 

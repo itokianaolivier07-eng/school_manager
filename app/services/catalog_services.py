@@ -1,4 +1,5 @@
 """Enseignants, classes et matières."""
+from app.core import school
 from app.core import validators as V
 from app.repositories.repos import ClassRepository, SubjectRepository, TeacherRepository
 from app.services.base import CrudService
@@ -40,9 +41,9 @@ class ClassService(_OptionsMixin, CrudService):
     def validate(self, data):
         return {
             "name": V.text(data, "name", "Nom de la classe", max_len=40),
-            "level": V.text(data, "level", "Niveau", required=False, max_len=40),
-            "school_year": V.text(data, "school_year", "Année scolaire", max_len=9,
-                                  pattern=V.YEAR_RE, error="Année scolaire : format AAAA-AAAA."),
+            "level": V.choice(data, "level", "Niveau", school.LEVELS, required=False),
+            "school_year": V.school_year(data, "school_year"),
+            "capacity": V.integer(data, "capacity", "Effectif maximal", minimum=1, maximum=80) or 45,
             "main_teacher_id": V.integer(data, "main_teacher_id", "Titulaire", minimum=1),
         }
 
