@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QDate
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QComboBox, QDateEdit, QDialog, QDialogButtonBox, QDoubleSpinBox,
                              QFormLayout, QLineEdit, QVBoxLayout)
 
@@ -19,6 +20,7 @@ class Field:
     decimals: int = 2
     step: float = 0.5
     default: Optional[float] = None
+    placeholder: str = ""
 
 
 class FormDialog(QDialog):
@@ -44,8 +46,12 @@ class FormDialog(QDialog):
             buttons.accepted.connect(self.accept)
         else:
             buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Enregistrer")
+            buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Annuler")
             buttons.accepted.connect(self.accept)
             buttons.rejected.connect(self.reject)
+        for button in buttons.buttons():
+            button.setIcon(QIcon())
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(buttons)
@@ -54,6 +60,7 @@ class FormDialog(QDialog):
         if f.kind in ("text", "password"):
             w = QLineEdit("" if value is None else str(value))
             w.setMaxLength(128 if f.kind == "password" else f.max_len)
+            w.setPlaceholderText(f.placeholder)
             if f.kind == "password":
                 w.setEchoMode(QLineEdit.EchoMode.Password)
                 w.setPlaceholderText("Laisser vide pour ne pas changer" if value is not None else "")

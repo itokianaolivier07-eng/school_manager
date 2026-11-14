@@ -27,8 +27,12 @@ app/repositories/            SQL paramétré uniquement                         
 app/database/                connexion SQLite durcie, migrations versionnées
 app/core/                    sécurité (scrypt), RBAC, session, validateurs, exceptions
 ```
-Fonctions : tableau de bord, élèves (import/export CSV), enseignants, classes, matières, notes et classements,
-tarifs scolaires, encaissements, reçus PDF, annulations, impayés, utilisateurs, journal d'audit et sauvegardes.
+Fonctions : tableau de bord, élèves (import/export CSV), enseignants, classes, tarifs scolaires,
+encaissements, reçus PDF, annulations, impayés, utilisateurs, journal d'audit et sauvegardes.
+Les niveaux proposés pour la crèche, la garderie et l'école vont de Crèche, Garderie, MS, PS, GS, CP,
+CE1, CE2, CM1, CM2 jusqu'à 6è, 5è, 4è et 3è. Les âges de validation couvrent ces parcours dès un an.
+Le générateur de démonstration crée des classes et âges d'élèves cohérents par niveau.
+Les migrations ne remplacent ni ne suppriment les dossiers élèves ou les paiements déjà enregistrés.
 La section Salaires sépare les rémunérations de base et l'historique des sorties ; les postes de professeur
 peuvent être rémunérés à l'heure, avec calcul automatique selon les heures saisies.
 Les tarifs sont associés à une classe et à une année scolaire. Les coordonnées historiques générales des élèves restent dans les bases déjà créées, mais ne sont plus
@@ -47,6 +51,9 @@ La fiche élève peut contenir le tuteur et les noms du père et de la mère ; c
 - Pas de mot de passe par défaut : l'admin est créé au premier lancement.
 - Accès par rôle (administrateur / secrétariat / enseignant), vérifié dans les services et dans l'interface.
 - SQL : requêtes paramétrées, tri en liste blanche, `LIKE` échappé ; contraintes CHECK/UNIQUE/FOREIGN KEY en base.
+  Les valeurs utilisateur ne sont jamais interpolées dans le SQL. Un ORM n'est pas une protection en soi :
+  le projet conserve les paramètres SQLite liés et les listes blanches pour éviter une migration de persistance
+  risquée sans gain de sécurité démontré.
 - Journal d'audit en ajout seul (triggers qui interdisent UPDATE/DELETE) ; aucun mot de passe journalisé.
 - Fichiers de données en 0600 / dossiers 0700, `secure_delete`, `trusted_schema=OFF`, export CSV protégé contre l'injection de formules, import limité à 25 Mo.
 - Sauvegarde à chaud avec contrôle d'intégrité et rotation.

@@ -13,7 +13,7 @@ from app.core.exceptions import AppError
 from app.ui.crud_view import CrudView
 from app.ui.forms import Field, FormDialog
 from app.ui.toast import show_toast
-from app.ui.utils import LABELS, handle_error
+from app.ui.utils import LABELS, ask_confirmation, handle_error
 
 STATUS_COLORS = {"Payé": "#dcfce7", "Partiel": "#fef3c7", "Impayé": "#fee2e2", "Gratuit": "#f1f5f9"}
 
@@ -169,7 +169,7 @@ class CollectTab(QWidget):
                 return handle_error(self, e)
         show_toast(self, f"Paiement enregistré — reçu {receipt}")
         self.load()
-        if QMessageBox.question(self, "Reçu", "Enregistrer le reçu en PDF ?") == QMessageBox.StandardButton.Yes:
+        if ask_confirmation(self, "Reçu", "Enregistrer le reçu en PDF ?"):
             try:
                 save_receipt_pdf(self, self.sv, pid)
             except Exception as e:
@@ -229,7 +229,8 @@ class ArrearsTab(QWidget):
         self.total = QLabel("Choisissez les filtres puis cliquez sur « Afficher les impayés ».")
         self.page_size = 100
         self.page = 0
-        self.rows = []
+        self.page_count = 1
+        self.filters = None
         self.previous_btn = QPushButton("Précédent")
         self.previous_btn.setObjectName("arrearsPreviousPage")
         self.previous_btn.setEnabled(False)
@@ -250,21 +251,25 @@ class ArrearsTab(QWidget):
         lay.addLayout(pagination)
 
     def compute(self):
+        self.filters = {
+            "class_id": self.class_cb.currentData(),
+            "school_year": self.year_cb.currentData(),
+            "month": self.month_cb.currentData(),
+        }
+        self.page = 0
+        self._load_page()
+
+    def _load_page(self):
+        if self.filters is None:
+            return
         try:
-            rows = self.sv.payments.arrears(
-                class_id=self.class_cb.currentData(),
-                school_year=self.year_cb.currentData(),
-                month=self.month_cb.currentData())
+            result = self.sv.payments.arrears_page(
+                **self.filters, page=self.page, size=self.page_size)
         except Exception as e:
             return handle_error(self, e)
-        self.rows = rows
-        self.page = 0
-        self._show_rows(rows)
-
-    def _show_rows(self, rows):
-        page_count = max(1, (len(rows) + self.page_size - 1) // self.page_size)
-        self.page = min(self.page, page_count - 1)
-        page_rows = rows[self.page * self.page_size:(self.page + 1) * self.page_size]
+        self.page = result["page"]
+        self.page_count = result["pages"]
+        page_rows = result["rows"]
         self.table.setRowCount(len(page_rows))
         for i, r in enumerate(page_rows):
             values = (
@@ -276,23 +281,22 @@ class ArrearsTab(QWidget):
             for j, value in enumerate(values):
                 v = value
                 self.table.setItem(i, j, _item(v))
-        students = len({r["student_id"] for r in rows})
         self.total.setText(
-            f"{students} élève(s) — {len(rows)} poste(s) impayé(s) — total restant : "
-            f"<b>{school.fmt_ar(sum(r['balance'] for r in rows))}</b>")
-        self.page_label.setText(f"Page {self.page + 1} / {page_count}")
+            f"{result['students']} élève(s) — {result['total']} poste(s) impayé(s) — total restant : "
+            f"<b>{school.fmt_ar(result['balance'])}</b>")
+        self.page_label.setText(f"Page {self.page + 1} / {self.page_count}")
         self.previous_btn.setEnabled(self.page > 0)
-        self.next_btn.setEnabled(self.page + 1 < page_count)
+        self.next_btn.setEnabled(self.page + 1 < self.page_count)
 
     def _previous_page(self):
         if self.page > 0:
             self.page -= 1
-            self._show_rows(self.rows)
+            self._load_page()
 
     def _next_page(self):
-        if (self.page + 1) * self.page_size < len(self.rows):
+        if self.page + 1 < self.page_count:
             self.page += 1
-            self._show_rows(self.rows)
+            self._load_page()
 
     def export_csv(self):
         path, _ = QFileDialog.getSaveFileName(

@@ -1,5 +1,6 @@
 """Écolages : tarifs par niveau, encaissements, reçus, annulations, impayés."""
 import csv
+import heapq
 import os
 from datetime import date
 
@@ -184,8 +185,7 @@ class PaymentService(CrudService):
             "ORDER BY c.name COLLATE NOCASE")]
         return years, classes
 
-    # --- impayés détaillés ---
-    def arrears(self, class_id=None, school_year=None, month=None, today=None):
+    def _iter_arrears(self, class_id=None, school_year=None, month=None, today=None):
         self.ctx.session.require("payments.read")
         today = today or date.today()
         if class_id is not None:
@@ -207,73 +207,138 @@ class PaymentService(CrudService):
             where.append("c.school_year = ?")
             params.append(school_year)
         where.append("s.status = 'active'")
-        where_sql = f" WHERE {' AND '.join(where)}"
-        rows = self.db.all(
-            "SELECT s.id, s.matricule, s.last_name, s.first_name, s.gender, s.tuition_discount, "
-            "c.id AS class_id, c.name AS class_name, c.school_year, "
+        students_sql = (
+            "SELECT s.id AS student_id, s.matricule, s.last_name, s.first_name, s.gender, "
+            "s.tuition_discount, c.id AS class_id, c.name AS class_name, c.school_year, "
             "f.monthly_amount, f.droit_amount, f.photocopy_amount, f.uniform_amount, "
             "f.activity_1_amount, f.activity_2_amount, f.activity_3_amount, "
             "f.activity_4_amount, f.activity_5_amount "
             "FROM students s JOIN classes c ON c.id = s.class_id "
-            "JOIN class_tuition_fees f ON f.class_id = c.id AND f.school_year = c.school_year"
-            f"{where_sql} ORDER BY c.school_year DESC, c.name COLLATE NOCASE, s.last_name, s.first_name",
-            params)
-        payment_where, payment_params = [], []
+            "JOIN class_tuition_fees f ON f.class_id = c.id AND f.school_year = c.school_year "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY c.school_year DESC, c.name COLLATE NOCASE, s.last_name COLLATE NOCASE, "
+            "s.first_name COLLATE NOCASE, s.id")
+        payments_where = ["p.cancelled = 0", "s.status = 'active'"]
+        payment_params = []
         if class_id is not None:
-            payment_where.append("s.class_id = ?")
+            payments_where.append("s.class_id = ?")
             payment_params.append(class_id)
         if school_year is not None:
-            payment_where.append("p.school_year = ?")
+            payments_where.append("p.school_year = ?")
             payment_params.append(school_year)
-        payment_filter = f" AND {' AND '.join(payment_where)}" if payment_where else ""
-        paid_by_student = {}
-        for payment in self.db.all(
+        payments_sql = (
             "SELECT p.student_id, p.school_year, p.fee_code, SUM(p.amount) AS paid "
             "FROM payments p JOIN students s ON s.id = p.student_id "
-            "WHERE p.cancelled = 0" + payment_filter +
-            " GROUP BY p.student_id, p.school_year, p.fee_code", payment_params):
-            paid_by_student.setdefault((payment["student_id"], payment["school_year"]), {})[
-                payment["fee_code"]] = payment["paid"]
-        out = []
-        for r in rows:
-            payments = paid_by_student.get((r["id"], r["school_year"]), {})
-            class_start = int(r["school_year"][:4])
-            current_start = int(school.current_school_year(today)[:4])
-            if class_start < current_start:
-                months_due = len(school.SCHOOL_MONTHS)
-            elif class_start > current_start:
-                months_due = 0
-            else:
-                months_due = school.months_elapsed(today)
-            if month is None and class_start <= current_start:
-                for fee_code in (*school.CORE_FEE_CODES, *school.ACTIVITY_FEE_CODES):
-                    due = r[school.FEE_AMOUNT_FIELDS[fee_code]]
-                    self._append_arrear(out, r, fee_code, due, payments.get(fee_code, 0), None)
-            if month is not None:
-                candidate_months = (month,) if month in school.SCHOOL_MONTHS[:months_due] else ()
-            else:
-                candidate_months = school.SCHOOL_MONTHS[:months_due]
-            for due_month in candidate_months:
-                fee_code = school.MONTH_FEE_CODES[due_month]
-                due = school.net_monthly(r["monthly_amount"], r["tuition_discount"])
-                self._append_arrear(out, r, fee_code, due, payments.get(fee_code, 0), due_month)
-        return sorted(out, key=lambda row: (-row["balance"], row["class_name"].casefold(),
-                                            row["last_name"].casefold(), row["first_name"].casefold()))
+            f"WHERE {' AND '.join(payments_where)} "
+            "GROUP BY p.student_id, p.school_year, p.fee_code")
+        paid_by_student = {}
+        for payment in self.db.all(payments_sql, payment_params):
+            paid_by_student[(payment["student_id"], payment["school_year"], payment["fee_code"])] = (
+                payment["paid"])
+
+        current_start = int(school.current_school_year(today)[:4])
+        elapsed = school.months_elapsed(today)
+        school_month_index = {
+            school_month: index for index, school_month in enumerate(school.SCHOOL_MONTHS, start=1)}
+        fixed_fee_codes = (*school.CORE_FEE_CODES, *school.ACTIVITY_FEE_CODES)
+
+        def append_arrear(student, fee_code, due, due_month):
+            paid = paid_by_student.get(
+                (student["student_id"], student["school_year"], fee_code), 0)
+            balance = max(0, due - paid)
+            if due <= 0 or balance <= 0:
+                return None
+            return {
+                "student_id": student["student_id"],
+                "matricule": student["matricule"],
+                "last_name": student["last_name"],
+                "first_name": student["first_name"],
+                "gender": student["gender"],
+                "class_id": student["class_id"],
+                "class_name": student["class_name"],
+                "school_year": student["school_year"],
+                "fee_code": fee_code,
+                "fee_label": (f"Écolage — {school.MONTH_NAMES[due_month]}" if due_month
+                              else school.FEE_ITEM_LABELS[fee_code]),
+                "month": due_month,
+                "due": due,
+                "paid": paid,
+                "balance": balance,
+            }
+
+        def generate():
+            cursor = self.db.conn.execute(students_sql, params)
+            try:
+                while batch := cursor.fetchmany(1000):
+                    for student in batch:
+                        class_start = int(student["school_year"][:4])
+                        if class_start < current_start:
+                            months_due = len(school.SCHOOL_MONTHS)
+                        elif class_start == current_start:
+                            months_due = elapsed
+                        else:
+                            months_due = 0
+                        if month is None and class_start <= current_start:
+                            for fee_code in fixed_fee_codes:
+                                row = append_arrear(
+                                    student, fee_code, student[school.FEE_AMOUNT_FIELDS[fee_code]],
+                                    None)
+                                if row is not None:
+                                    yield row
+                        if month is None:
+                            candidate_months = school.SCHOOL_MONTHS[:months_due]
+                        elif school_month_index[month] <= months_due:
+                            candidate_months = (month,)
+                        else:
+                            candidate_months = ()
+                        for due_month in candidate_months:
+                            fee_code = school.MONTH_FEE_CODES[due_month]
+                            due = school.net_monthly(
+                                student["monthly_amount"], student["tuition_discount"])
+                            row = append_arrear(student, fee_code, due, due_month)
+                            if row is not None:
+                                yield row
+            finally:
+                cursor.close()
+
+        return generate()
 
     @staticmethod
-    def _append_arrear(rows, student, fee_code, due, paid, month):
-        balance = max(0, due - paid)
-        if due > 0 and balance > 0:
-            rows.append({
-                "student_id": student["id"], "matricule": student["matricule"],
-                "last_name": student["last_name"], "first_name": student["first_name"],
-                "gender": student["gender"], "class_id": student["class_id"],
-                "class_name": student["class_name"], "school_year": student["school_year"],
-                "fee_code": fee_code,
-                "fee_label": (f"Écolage — {school.MONTH_NAMES[month]}" if month
-                              else school.FEE_ITEM_LABELS[fee_code]),
-                "month": month, "due": due, "paid": paid, "balance": balance,
-            })
+    def _arrears_sort_key(row):
+        return (-row["balance"], row["class_name"].casefold(), row["last_name"].casefold(),
+                row["first_name"].casefold(), row["student_id"], row["fee_code"])
+
+    def arrears(self, class_id=None, school_year=None, month=None, today=None):
+        rows = self._iter_arrears(class_id, school_year, month, today)
+        return sorted(rows, key=self._arrears_sort_key)
+
+    def arrears_page(self, class_id=None, school_year=None, month=None, today=None,
+                     page=0, size=config.PAGE_SIZE):
+        page = max(0, int(page))
+        size = max(1, int(size))
+        unique_students = set()
+        total_balance = 0
+        total = 0
+
+        def count_rows():
+            nonlocal total, total_balance
+            for row in self._iter_arrears(class_id, school_year, month, today):
+                total += 1
+                total_balance += row["balance"]
+                unique_students.add(row["student_id"])
+                yield row
+
+        limit = (page + 1) * size
+        page_rows = heapq.nsmallest(limit, count_rows(), key=self._arrears_sort_key)
+        pages = max(1, (total + size - 1) // size)
+        return {
+            "rows": page_rows[page * size:(page + 1) * size],
+            "total": total,
+            "students": len(unique_students),
+            "balance": total_balance,
+            "page": page,
+            "pages": pages,
+        }
 
     def export_arrears_csv(self, path, class_id=None, school_year=None, month=None, today=None):
         self.ctx.session.require("payments.export")
@@ -293,7 +358,8 @@ class PaymentService(CrudService):
                 gender = {"M": "Masculin", "F": "Féminin"}.get(row["gender"], "")
                 writer.writerow([
                     csv_safe(gender if key == "gender" else
-                             school.MONTH_NAMES[row[key]] if key == "month" and row[key] else row[key])
+                             school.MONTH_NAMES[row[key]] if key == "month" and row[key]
+                             else row[key])
                     for key, _ in columns
                 ])
         self.log("export_arrears_csv", None, f"{len(rows)} lignes")

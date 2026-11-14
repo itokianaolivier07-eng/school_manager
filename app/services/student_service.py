@@ -69,7 +69,10 @@ class StudentService(CrudService):
     @staticmethod
     def _birth_date(data):
         d = V.date_iso(data, "birth_date", "Date de naissance")
-        age = (date.today() - date.fromisoformat(d)).days / 365.25
+        today = date.today()
+        birth_date = date.fromisoformat(d)
+        age = today.year - birth_date.year - (
+            (today.month, today.day) < (birth_date.month, birth_date.day))
         if not school.MIN_AGE <= age <= school.MAX_AGE:
             raise ValidationError("Date de naissance : âge hors limites.")
         return d

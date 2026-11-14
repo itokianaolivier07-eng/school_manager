@@ -26,7 +26,7 @@ def test_create_student_autogenerates_matricule(env):
 
 def test_student_schema_and_legacy_contact_privacy(env):
     ctx, svc = env
-    assert ctx.db.one("PRAGMA user_version")[0] == 10
+    assert ctx.db.one("PRAGMA user_version")[0] == 11
     class_columns = {row["name"] for row in ctx.db.all("PRAGMA table_info(classes)")}
     assert "level" not in class_columns
     assert ctx.db.one("SELECT name FROM sqlite_master WHERE type='table' AND name='tuition_fees'") is None
@@ -65,7 +65,7 @@ def test_migration_from_existing_database_preserves_student_data():
             None, None, None, 0)
         teacher = db.one("SELECT position FROM teachers WHERE employee_no='ENS001'")
         assert teacher["position"] == "Enseignante"
-        assert db.one("PRAGMA user_version")[0] == 10
+        assert db.one("PRAGMA user_version")[0] == 11
         class_columns = {row["name"] for row in db.all("PRAGMA table_info(classes)")}
         assert "level" not in class_columns
     finally:
@@ -89,7 +89,25 @@ def test_salary_migration_preserves_existing_monthly_rates():
         salary = db.one(
             "SELECT monthly_amount, pay_type, hourly_rate FROM employee_salaries WHERE employee_id=1")
         assert tuple(salary) == (350000, "monthly", 0)
+        assert db.one("PRAGMA user_version")[0] == 11
+    finally:
+        db.close()
+
+
+def test_arrears_index_migration_from_existing_database():
+    db = Database()
+    try:
+        for version, sql in MIGRATIONS:
+            if version == 11:
+                break
+            db.conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version={version};\nCOMMIT;")
+
         assert db.one("PRAGMA user_version")[0] == 10
+        migrate(db)
+
+        assert db.one("PRAGMA user_version")[0] == 11
+        assert db.one(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_payments_arrears'")
     finally:
         db.close()
 
@@ -97,7 +115,7 @@ def test_salary_migration_preserves_existing_monthly_rates():
 def test_validation_rejects_bad_input(env):
     _, svc = env
     for bad in ({**VALID, "first_name": "<script>"}, {**VALID, "birth_date": "2999-01-01"},
-                {**VALID, "birth_date": "2020-01-01"}, {**VALID, "gender": "X"}):
+                {**VALID, "birth_date": "1900-01-01"}, {**VALID, "gender": "X"}):
         with pytest.raises(ValidationError):
             svc.students.create(bad)
 
@@ -216,6 +234,7 @@ def test_sql_injection_is_inert(env):
     svc.students.create(VALID)
     page = svc.students.page(search="'; DROP TABLE students;--", sort="id; DROP TABLE students")
     assert page.total == 0
+    assert svc.students.page(search="' OR 1=1 --").total == 0
     assert svc.students.page().total == 1
 
 
@@ -279,16 +298,48 @@ def test_user_listing_never_exposes_hash(env):
     assert "password_hash" not in svc.users.page().rows[0].keys()
 
 
-def test_grades_and_ranking(env):
+def test_removed_grade_tables_are_not_exposed(env):
     ctx, svc = env
-    cid = svc.classes.create({"name": "6e-A", "school_year": "2026-2027"})
-    sub = svc.subjects.create({"code": "MATH", "name": "Maths", "coefficient": 4})
-    ids = [svc.students.create({**VALID, "first_name": n, "class_id": cid}) for n in ("Aina", "Bao")]
-    svc.grades.save_sheet(cid, sub, 1, [(ids[0], "12,5", None), (ids[1], 17, "Bien")])
-    rank = svc.grades.ranking(cid, 1)
-    assert [r["first_name"] for r in rank] == ["Bao", "Aina"] and rank[0]["rank"] == 1
-    with pytest.raises(ValidationError):
-        svc.grades.save_sheet(cid, sub, 1, [(ids[0], 25, None)])
+    tables = {row["name"] for row in ctx.db.all(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "subjects" not in tables
+    assert "grades" not in tables
+    assert not hasattr(svc, "subjects")
+    assert not hasattr(svc, "grades")
+
+
+def test_students_can_be_enrolled_in_preschool_ages(env):
+    _, svc = env
+    student_id = svc.students.create({**VALID, "birth_date": "2024-05-12"})
+    assert svc.students.get(student_id)["birth_date"] == "2024-05-12"
+
+
+def test_demo_seed_uses_school_levels_and_age_ranges(tmp_path, monkeypatch):
+    from scripts.seed_demo import main as seed_demo
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "school.db")
+    monkeypatch.setattr(config, "BACKUP_DIR", tmp_path / "backups")
+    monkeypatch.setattr(config, "LOG_DIR", tmp_path / "logs")
+    seed_demo(len(school.SCHOOL_LEVELS))
+
+    db = Database(config.DB_PATH)
+    try:
+        classes = db.all("SELECT id, name FROM classes")
+        assert {row["name"].rsplit("-", 1)[0] for row in classes} == set(school.SCHOOL_LEVELS)
+        students = db.all(
+            "SELECT s.birth_date, c.name FROM students s JOIN classes c ON c.id = s.class_id")
+        assert len(students) == len(school.SCHOOL_LEVELS)
+        today = date.today()
+        for student in students:
+            level = student["name"].rsplit("-", 1)[0]
+            birth_date = date.fromisoformat(student["birth_date"])
+            age = today.year - birth_date.year - (
+                (today.month, today.day) < (birth_date.month, birth_date.day))
+            minimum, maximum = school.LEVEL_AGE_RANGES[level]
+            assert minimum <= age <= maximum
+    finally:
+        db.close()
 
 
 def test_fees_and_payments(env):
@@ -420,6 +471,34 @@ def test_arrears_filter_class_year_month_and_csv_export(env, tmp_path):
     assert "Poste impayé" in exported and "Féminin" in exported
     assert "Écolage" in exported and "Octobre" in exported and "Droit" not in exported
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_arrears_page_is_filtered_and_matches_complete_report(env):
+    _, svc = env
+    class_id = svc.classes.create({"name": "Classe Page", "school_year": "2026-2027"})
+    student_ids = [
+        svc.students.create({
+            **VALID, "first_name": ("Aina", "Bao", "Soa")[i], "class_id": class_id})
+        for i in range(3)
+    ]
+    svc.fees.create({"class_id": class_id, "monthly_amount": 1000})
+    for student_id in student_ids:
+        svc.payments.record(
+            student_id, {"fee_code": "october", "amount": 200, "method": "cash"})
+
+    report = svc.payments.arrears(
+        class_id=class_id, school_year="2026-2027", month=10, today=date(2026, 10, 15))
+    first_page = svc.payments.arrears_page(
+        class_id=class_id, school_year="2026-2027", month=10, today=date(2026, 10, 15),
+        page=0, size=2)
+    second_page = svc.payments.arrears_page(
+        class_id=class_id, school_year="2026-2027", month=10, today=date(2026, 10, 15),
+        page=1, size=2)
+
+    assert first_page["total"] == len(report) == 3
+    assert first_page["students"] == 3
+    assert first_page["balance"] == sum(row["balance"] for row in report) == 2400
+    assert first_page["rows"] + second_page["rows"] == report
 
 
 def test_dashboard_and_billing_permissions():

@@ -10,6 +10,7 @@ from app.database.migration7 import MIGRATION_7
 from app.database.migration8 import MIGRATION_8
 from app.database.migration9 import MIGRATION_9
 from app.database.migration10 import MIGRATION_10
+from app.database.migration11 import MIGRATION_11
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ BEGIN SELECT RAISE(ABORT, 'audit_log est en lecture seule'); END;
 
 MIGRATIONS = [(1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3), (4, MIGRATION_4),
               (5, MIGRATION_5), (6, MIGRATION_6), (7, MIGRATION_7), (8, MIGRATION_8),
-              (9, MIGRATION_9), (10, MIGRATION_10)]
+              (9, MIGRATION_9), (10, MIGRATION_10), (11, MIGRATION_11)]
 
 
 def migrate(db) -> None:

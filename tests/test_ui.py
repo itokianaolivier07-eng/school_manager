@@ -5,8 +5,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import (QApplication, QComboBox, QDoubleSpinBox, QLineEdit, QTableWidget,
-                             QToolButton)
+from PyQt6.QtWidgets import (QApplication, QComboBox, QDialogButtonBox, QDoubleSpinBox, QLineEdit,
+                             QMessageBox, QTableWidget, QToolButton)
 
 from app.ui.forms import Field, FormDialog
 from app.ui.dialogs import LoginDialog
@@ -15,6 +15,7 @@ from app.ui.main_window import MainWindow
 from app.ui.table_model import RowsModel
 from app.ui.theme import apply_theme
 from app.ui.salaries_view import SalaryBaseDialog, SalariesView
+from app.ui.utils import ask_confirmation, handle_error
 from app.ui.views import classes_view, students_view
 from tests.conftest import make_env
 
@@ -90,6 +91,65 @@ def test_login_focuses_identifier_for_keyboard_input(qapp):
     dialog.close()
 
 
+def test_login_has_modern_plain_text_actions(qapp):
+    ctx, services = make_env()
+    dialog = LoginDialog(services.auth)
+
+    assert dialog.objectName() == "loginDialog"
+    assert dialog.heading.text() == "Bienvenue"
+    assert dialog.user.placeholderText() == "Votre identifiant"
+    assert dialog.pwd.placeholderText() == "Votre mot de passe"
+    assert dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).text() == "Se connecter"
+    assert dialog.buttons.button(QDialogButtonBox.StandardButton.Cancel).text() == "Quitter"
+    assert all(button.icon().isNull() for button in dialog.buttons.buttons())
+    dialog.close()
+
+
+def test_unexpected_dialog_error_is_handled_and_password_cleared(qapp, monkeypatch):
+    class BrokenAuth:
+        def login(self, _username, _password):
+            raise RuntimeError("internal detail")
+
+    handled = []
+    monkeypatch.setattr("app.ui.dialogs.handle_error", lambda parent, exc: handled.append(exc))
+    dialog = LoginDialog(BrokenAuth())
+    dialog.user.setText("admin")
+    dialog.pwd.setText("secret")
+    dialog._submit()
+
+    assert len(handled) == 1 and isinstance(handled[0], RuntimeError)
+    assert dialog.pwd.text() == ""
+    assert not dialog.error.isHidden()
+    dialog.close()
+
+
+def test_confirmation_buttons_have_no_icons(qapp, monkeypatch):
+    captured = {}
+
+    def fake_exec(dialog):
+        buttons = dialog.buttons()
+        captured["texts"] = [button.text() for button in buttons]
+        captured["icons_empty"] = all(button.icon().isNull() for button in buttons)
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    assert ask_confirmation(None, "Confirmation", "Continuer ?") is False
+    assert captured["texts"] == ["Oui", "Non"]
+    assert captured["icons_empty"] is True
+
+
+def test_unexpected_errors_are_logged_without_showing_details(qapp, monkeypatch, caplog):
+    shown = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: shown.append(args[-1]))
+    try:
+        raise RuntimeError("sensitive database detail")
+    except RuntimeError as exc:
+        handle_error(None, exc)
+
+    assert "sensitive database detail" not in shown[0]
+    assert "sensitive database detail" in caplog.text
+
+
 def test_input_and_table_text_are_dark(qapp):
     line = QLineEdit()
     combo = QComboBox()
@@ -119,6 +179,8 @@ def test_class_screen_uses_employee_and_has_no_level(qapp):
     employee = next(field for field in view.fields if field.name == "main_teacher_id")
     assert employee.label == "Employé"
     assert employee.choices() == [("EMP001 — Rakoto Aina", employee_id)]
+    class_name = next(field for field in view.fields if field.name == "name")
+    assert "Crèche" in class_name.placeholder and "CE1" in class_name.placeholder
 
 
 def test_student_form_has_parent_phone_fields(qapp):
@@ -210,15 +272,28 @@ def test_arrears_table_paginates_large_result_sets(qapp):
     ctx, services = make_env()
     view = FeesView(services, ctx)
     arrears = view.arrears
-    arrears.sv.payments.arrears = lambda **_filters: [
-        {
+    def arrears_page(**filters):
+        rows = [
+            {
             "student_id": index + 1, "matricule": f"MAT{index + 1}",
             "last_name": "Nom", "first_name": f"Prénom {index + 1}", "gender": "M",
             "class_name": "Classe A", "school_year": "2026-2027", "fee_label": "Écolage",
             "month": 9, "due": 1000, "paid": 0, "balance": 1000,
+            }
+            for index in range(101)
+        ]
+        page = filters["page"]
+        start = page * filters["size"]
+        return {
+            "rows": rows[start:start + filters["size"]],
+            "total": len(rows),
+            "students": len(rows),
+            "balance": sum(row["balance"] for row in rows),
+            "page": page,
+            "pages": (len(rows) + filters["size"] - 1) // filters["size"],
         }
-        for index in range(101)
-    ]
+
+    arrears.sv.payments.arrears_page = arrears_page
 
     arrears.compute()
     assert arrears.table.rowCount() == 100
@@ -239,7 +314,9 @@ def test_arrears_are_loaded_only_after_explicit_request(qapp):
     view = FeesView(services, ctx)
     arrears = view.arrears
     calls = []
-    arrears.sv.payments.arrears = lambda **_filters: calls.append(True) or []
+    arrears.sv.payments.arrears_page = lambda **_filters: calls.append(True) or {
+        "rows": [], "total": 0, "students": 0, "balance": 0, "page": 0, "pages": 1,
+    }
 
     view.tabs.setCurrentWidget(arrears)
     view.refresh()

@@ -1,5 +1,6 @@
 """Consultation des rémunérations de base et historique des sorties."""
 from PyQt6.QtCore import QDate
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QComboBox, QDateEdit, QDialog, QDialogButtonBox, QDoubleSpinBox,
                              QFormLayout, QLabel, QVBoxLayout, QWidget, QTabWidget)
 
@@ -81,6 +82,10 @@ class SalaryDisbursementDialog(QDialog):
         form.addRow("", self.preview)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Enregistrer")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Annuler")
+        for button in buttons.buttons():
+            button.setIcon(QIcon())
         buttons.accepted.connect(self._submit)
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)

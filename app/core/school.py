@@ -41,7 +41,16 @@ FEE_AMOUNT_FIELDS = {
     "activity_5": "activity_5_amount",
 }
 MAX_AMOUNT = 10_000_000
-MIN_AGE, MAX_AGE = 8, 19
+SCHOOL_LEVELS = (
+    "Crèche", "Garderie", "MS", "PS", "GS", "CP", "CE1", "CE2", "CM1", "CM2",
+    "6è", "5è", "4è", "3è",
+)
+LEVEL_AGE_RANGES = {
+    "Crèche": (1, 3), "Garderie": (3, 5), "MS": (4, 5), "PS": (3, 4), "GS": (5, 6),
+    "CP": (6, 7), "CE1": (7, 8), "CE2": (8, 9), "CM1": (9, 10), "CM2": (10, 11),
+    "6è": (11, 12), "5è": (12, 13), "4è": (13, 14), "3è": (14, 15),
+}
+MIN_AGE, MAX_AGE = 1, 19
 DEFAULT_CAPACITY = 45
 
 

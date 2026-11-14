@@ -6,7 +6,7 @@ from app import config
 from app.core.exceptions import AppError
 from app.ui.forms import FormDialog
 from app.ui.table_model import RowsModel
-from app.ui.utils import handle_error
+from app.ui.utils import ask_confirmation, handle_error
 
 
 class CrudView(QWidget):
@@ -231,8 +231,8 @@ class CrudView(QWidget):
         id_ = self._row_id(row_idx)
         if id_ is None:
             return
-        if QMessageBox.question(self, "Confirmation", f"Supprimer définitivement ce {self.noun} ?"
-                                ) != QMessageBox.StandardButton.Yes:
+        if not ask_confirmation(
+                self, "Confirmation", f"Supprimer définitivement ce {self.noun} ?"):
             return
         try:
             self.service.delete(id_)

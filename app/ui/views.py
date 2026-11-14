@@ -74,7 +74,8 @@ def teachers_view(sv, ctx):
 def classes_view(sv, ctx):
     columns = [("name", "Classe"), ("school_year", "Année"), ("student_count", "Élèves"),
                ("capacity", "Effectif max."), ("employee", "Employé")]
-    fields = [Field("name", "Nom", required=True, max_len=40),
+    fields = [Field("name", "Classe / niveau", required=True, max_len=40,
+                    placeholder="Crèche, Garderie, MS, PS, GS, CP, CE1… (ex. CE1-A)"),
               Field("school_year", "Année scolaire (AAAA-AAAA)", required=True, max_len=9),
               Field("capacity", "Effectif maximal", "number", minimum=1, maximum=80, decimals=0, step=1, default=45),
               Field("main_teacher_id", "Employé", "combo", choices=sv.teachers.options if ctx.session.can("teachers.read") else None)]

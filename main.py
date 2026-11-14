@@ -1,8 +1,9 @@
 import os
+import logging
 os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 import sys
 from PyQt6.QtCore import QEvent, QObject
-from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from app import config
 from app.core.context import AppContext
@@ -30,10 +31,11 @@ class ActivityFilter(QObject):
 
 
 def main() -> int:
-    config.ensure_dirs()
-    setup_logging()
-    db = Database(config.DB_PATH)
+    db = None
     try:
+        config.ensure_dirs()
+        setup_logging()
+        db = Database(config.DB_PATH)
         migrate(db)
         app = QApplication(sys.argv)
         app.setApplicationName(config.APP_NAME)
@@ -58,8 +60,17 @@ def main() -> int:
             app.exec()
             if not window.relogin:
                 break
+    except Exception as exc:
+        logging.getLogger(__name__).critical(
+            "Échec au démarrage ou pendant l'exécution", exc_info=(type(exc), exc, exc.__traceback__))
+        app = QApplication.instance() or QApplication(sys.argv)
+        QMessageBox.critical(
+            None, "Démarrage impossible",
+            "L'application a rencontré une erreur et ne peut pas continuer. Consultez le journal.")
+        return 1
     finally:
-        db.close()
+        if db is not None:
+            db.close()
     return 0
 
 

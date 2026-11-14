@@ -3,9 +3,14 @@
 STYLESHEET = """
 * { font-family: "Inter", "Segoe UI", "Noto Sans", "Ubuntu", sans-serif; font-size: 10.5pt; }
 QMainWindow, QDialog, QWidget#page { background: #f5f6fb; }
+QDialog#appDialog { background: #f5f6fb; }
+QFrame#dialogCard { background: white; border: 1px solid #e2e8f0; border-radius: 16px; }
 QLabel { color: #1e293b; background: transparent; }
 QLabel#pageTitle { font-size: 20pt; font-weight: 700; color: #1e1b4b; }
-QLabel#dialogTitle { font-size: 14pt; font-weight: 700; color: #1e1b4b; padding-bottom: 6px; }
+QLabel#dialogTitle { font-size: 19pt; font-weight: 700; color: #1e1b4b; padding: 4px 0; }
+QLabel#dialogSubtitle { color: #64748b; padding-bottom: 8px; }
+QLabel#dialogError { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca;
+                     border-radius: 8px; padding: 8px; }
 QLabel#muted { color: #64748b; }
 QLabel#error { color: #dc2626; }
 QLabel#resultInfo { color: #64748b; font-size: 9.5pt; }
@@ -49,6 +54,7 @@ QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox {
     selection-background-color: #c7d2fe; selection-color: #1e1b4b; min-height: 20px; }
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QDoubleSpinBox:focus { border: 2px solid #4f46e5; }
 QLineEdit#searchField { padding: 9px 14px; font-size: 10.5pt; }
+QLineEdit#loginUser, QLineEdit#loginPassword { min-height: 28px; }
 QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 26px; }
 QComboBox QAbstractItemView { color: #1e293b; background: white; border: 1px solid #cbd5e1;
                               selection-background-color: #e0e7ff; selection-color: #1e1b4b; }
