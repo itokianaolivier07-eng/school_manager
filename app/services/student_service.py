@@ -13,7 +13,8 @@ from app.repositories.repos import StudentRepository
 from app.services.base import CrudService
 
 EXPORT_COLS = ("matricule", "last_name", "first_name", "birth_date", "gender", "tutor_name",
-               "father_name", "mother_name",
+               "tutor_phone", "tutor_profession", "father_name", "father_phone", "father_profession",
+               "mother_name", "mother_phone", "mother_profession",
                "tuition_discount", "address", "class_name", "status")
 STATUSES = ("active", "suspended", "graduated", "left")
 
@@ -45,8 +46,20 @@ class StudentService(CrudService):
             "birth_date": self._birth_date(data),
             "gender": V.choice(data, "gender", "Genre", ("M", "F"), required=False),
             "tutor_name": V.text(data, "tutor_name", "Tuteur", required=False, max_len=100),
+            "tutor_phone": V.text(data, "tutor_phone", "Téléphone du tuteur", required=False,
+                                  max_len=20, pattern=V.PHONE_RE),
+            "tutor_profession": V.text(data, "tutor_profession", "Profession du tuteur",
+                                       required=False, max_len=100),
             "father_name": V.text(data, "father_name", "Nom du père", required=False, max_len=100),
+            "father_phone": V.text(data, "father_phone", "Téléphone du père", required=False,
+                                   max_len=20, pattern=V.PHONE_RE),
+            "father_profession": V.text(data, "father_profession", "Profession du père",
+                                        required=False, max_len=100),
             "mother_name": V.text(data, "mother_name", "Nom de la mère", required=False, max_len=100),
+            "mother_phone": V.text(data, "mother_phone", "Téléphone de la mère", required=False,
+                                   max_len=20, pattern=V.PHONE_RE),
+            "mother_profession": V.text(data, "mother_profession", "Profession de la mère",
+                                        required=False, max_len=100),
             "tuition_discount": V.integer(data, "tuition_discount", "Remise", minimum=0, maximum=100) or 0,
             "address": V.text(data, "address", "Adresse", required=False, max_len=200),
             "class_id": V.integer(data, "class_id", "Classe", minimum=1),

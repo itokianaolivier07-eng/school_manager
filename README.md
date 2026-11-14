@@ -29,10 +29,16 @@ app/core/                    sécurité (scrypt), RBAC, session, validateurs, ex
 ```
 Fonctions : tableau de bord, élèves (import/export CSV), enseignants, classes, matières, notes et classements,
 tarifs scolaires, encaissements, reçus PDF, annulations, impayés, utilisateurs, journal d'audit et sauvegardes.
-Les tarifs sont associés à une classe et à une année scolaire. Les coordonnées historiques des élèves restent dans
-les bases déjà créées, mais ne sont plus affichées ni exportées.
-Les tarifs d'écolage sont définis par classe et année scolaire : droit, photocopie, tenue, activités 1 à 5 et
+La section Salaires sépare les rémunérations de base et l'historique des sorties ; les postes de professeur
+peuvent être rémunérés à l'heure, avec calcul automatique selon les heures saisies.
+Les tarifs sont associés à une classe et à une année scolaire. Les coordonnées historiques générales des élèves restent dans les bases déjà créées, mais ne sont plus
+affichées ni exportées. La fiche élève permet de renseigner les noms et téléphones facultatifs du tuteur,
+du père et de la mère, ainsi que leurs professions ; ces informations sont incluses dans l'import/export CSV.
+Les tarifs d'écolage sont définis par classe et année scolaire : droit, photocopie, tenue, calendrier,
+classe verte, enveloppe, fête de fin d'année, autre et
 mensualités de septembre à juin. La situation de chaque élève affiche ces 18 postes séparément.
+L'onglet Impayés permet de filtrer par classe, année scolaire et mois d'écolage, puis d'exporter les postes
+impayés détaillés en CSV.
 La fiche élève peut contenir le tuteur et les noms du père et de la mère ; ces trois informations sont facultatives.
 
 ## Sécurité

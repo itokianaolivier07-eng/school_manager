@@ -4,8 +4,8 @@ import html
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QBrush, QColor, QPageSize, QPdfWriter, QTextDocument
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QInputDialog,
-                             QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-                             QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                             QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+                             QPushButton, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from app import config
 from app.core import school
@@ -13,16 +13,15 @@ from app.core.exceptions import AppError
 from app.ui.crud_view import CrudView
 from app.ui.forms import Field, FormDialog
 from app.ui.toast import show_toast
-from app.ui.utils import handle_error
+from app.ui.utils import LABELS, handle_error
 
 STATUS_COLORS = {"Payé": "#dcfce7", "Partiel": "#fef3c7", "Impayé": "#fee2e2", "Gratuit": "#f1f5f9"}
 
 
-def _item(text, align_right=False):
+def _item(text):
     it = QTableWidgetItem("" if text is None else str(text))
     it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
-    if align_right:
-        it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     return it
 
 
@@ -73,6 +72,8 @@ class CollectTab(QWidget):
         self.header.setObjectName("muted")
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Période", "Dû", "Payé", "Reste", "Statut"])
+        self.table.horizontalHeader().setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -132,7 +133,7 @@ class CollectTab(QWidget):
             cells = [r["label"], school.fmt_ar(r["due"]), school.fmt_ar(r["paid"]),
                      school.fmt_ar(r["balance"]), r["status"]]
             for j, text in enumerate(cells):
-                it = _item(text, align_right=j in (1, 2, 3))
+                it = _item(text)
                 it.setBackground(QBrush(QColor(STATUS_COLORS[r["status"]])))
                 it.setForeground(QBrush(QColor("#1e293b")))
                 self.table.setItem(i, j, it)
@@ -182,49 +183,135 @@ class ArrearsTab(QWidget):
     def __init__(self, services, ctx):
         super().__init__()
         self.sv = services
+        self.ctx = ctx
+        years, classes = services.payments.arrears_filter_options()
+        self.year_cb = QComboBox()
+        self.year_cb.setObjectName("arrearsSchoolYearFilter")
+        self.year_cb.addItem("Toutes les années", None)
+        for year in years:
+            self.year_cb.addItem(year, year)
         self.class_cb = QComboBox()
-        go = QPushButton("Calculer les impayés")
-        go.clicked.connect(self.compute)
+        self.class_cb.setObjectName("arrearsClassFilter")
+        self.class_cb.addItem("Toutes les classes", None)
+        for school_class in classes:
+            self.class_cb.addItem(
+                f"{school_class['name']} — {school_class['school_year']}", school_class["id"])
+        self.month_cb = QComboBox()
+        self.month_cb.setObjectName("arrearsMonthFilter")
+        self.month_cb.addItem("Tous les mois échus", None)
+        for month in school.SCHOOL_MONTHS:
+            self.month_cb.addItem(school.MONTH_NAMES[month], month)
+        self.compute_btn = QPushButton("Afficher les impayés")
+        self.compute_btn.clicked.connect(self.compute)
+        self.export_btn = QPushButton("Exporter CSV")
+        self.export_btn.setObjectName("secondaryButton")
+        self.export_btn.setEnabled(ctx.session.can("payments.export"))
+        self.export_btn.clicked.connect(self.export_csv)
         top = QHBoxLayout()
+        top.addWidget(QLabel("Année scolaire"))
+        top.addWidget(self.year_cb)
         top.addWidget(QLabel("Classe"))
         top.addWidget(self.class_cb, 1)
-        top.addWidget(go)
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Matricule", "Nom", "Prénom", "Dû à ce jour", "Payé", "Reste"])
-        self.table.horizontalHeader().setStretchLastSection(True)
+        top.addWidget(QLabel("Mois d'écolage"))
+        top.addWidget(self.month_cb)
+        top.addWidget(self.compute_btn)
+        top.addWidget(self.export_btn)
+        self.table = QTableWidget(0, 11)
+        self.table.setHorizontalHeaderLabels([
+            "Matricule", "Nom", "Prénom", "Sexe", "Classe", "Année scolaire",
+            "Poste impayé", "Mois", "Dû", "Payé", "Reste à payer"])
+        self.table.horizontalHeader().setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.total = QLabel()
+        self.page_size = 100
+        self.page = 0
+        self.rows = []
+        self.previous_btn = QPushButton("Précédent")
+        self.previous_btn.setObjectName("arrearsPreviousPage")
+        self.previous_btn.setEnabled(False)
+        self.previous_btn.clicked.connect(self._previous_page)
+        self.page_label = QLabel()
+        self.next_btn = QPushButton("Suivant")
+        self.next_btn.setObjectName("arrearsNextPage")
+        self.next_btn.setEnabled(False)
+        self.next_btn.clicked.connect(self._next_page)
+        pagination = QHBoxLayout()
+        pagination.addWidget(self.total, 1)
+        pagination.addWidget(self.previous_btn)
+        pagination.addWidget(self.page_label)
+        pagination.addWidget(self.next_btn)
         lay = QVBoxLayout(self)
         lay.addLayout(top)
         lay.addWidget(self.table, 1)
-        lay.addWidget(self.total)
+        lay.addLayout(pagination)
 
     def refresh(self):
         try:
-            current = self.class_cb.currentData()
-            self.class_cb.clear()
-            for label, val in self.sv.classes.options():
-                self.class_cb.addItem(label, val)
-            self.class_cb.setCurrentIndex(max(0, self.class_cb.findData(current)))
+            self.compute()
         except Exception as e:
             handle_error(self, e)
 
     def compute(self):
-        cid = self.class_cb.currentData()
-        if cid is None:
-            return
         try:
-            rows = self.sv.payments.arrears(cid)
+            rows = self.sv.payments.arrears(
+                class_id=self.class_cb.currentData(),
+                school_year=self.year_cb.currentData(),
+                month=self.month_cb.currentData())
         except Exception as e:
             return handle_error(self, e)
-        self.table.setRowCount(len(rows))
-        for i, r in enumerate(rows):
-            for j, key in enumerate(("matricule", "last_name", "first_name", "due", "paid", "balance")):
-                v = school.fmt_ar(r[key]) if key in ("due", "paid", "balance") else r[key]
-                self.table.setItem(i, j, _item(v, align_right=key in ("due", "paid", "balance")))
-        self.total.setText(f"{len(rows)} élève(s) en retard — total des impayés : "
-                           f"<b>{school.fmt_ar(sum(r['balance'] for r in rows))}</b>")
+        self.rows = rows
+        self.page = 0
+        self._show_rows(rows)
+
+    def _show_rows(self, rows):
+        page_count = max(1, (len(rows) + self.page_size - 1) // self.page_size)
+        self.page = min(self.page, page_count - 1)
+        page_rows = rows[self.page * self.page_size:(self.page + 1) * self.page_size]
+        self.table.setRowCount(len(page_rows))
+        for i, r in enumerate(page_rows):
+            values = (
+                r["matricule"], r["last_name"], r["first_name"], LABELS["gender"].get(r["gender"], ""),
+                r["class_name"], r["school_year"], r["fee_label"],
+                school.MONTH_NAMES.get(r["month"], "") if r["month"] else "—",
+                school.fmt_ar(r["due"]), school.fmt_ar(r["paid"]), school.fmt_ar(r["balance"]),
+            )
+            for j, value in enumerate(values):
+                v = value
+                self.table.setItem(i, j, _item(v))
+        students = len({r["student_id"] for r in rows})
+        self.total.setText(
+            f"{students} élève(s) — {len(rows)} poste(s) impayé(s) — total restant : "
+            f"<b>{school.fmt_ar(sum(r['balance'] for r in rows))}</b>")
+        self.page_label.setText(f"Page {self.page + 1} / {page_count}")
+        self.previous_btn.setEnabled(self.page > 0)
+        self.next_btn.setEnabled(self.page + 1 < page_count)
+
+    def _previous_page(self):
+        if self.page > 0:
+            self.page -= 1
+            self._show_rows(self.rows)
+
+    def _next_page(self):
+        if (self.page + 1) * self.page_size < len(self.rows):
+            self.page += 1
+            self._show_rows(self.rows)
+
+    def export_csv(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Exporter les impayés", "impayes.csv", "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            count = self.sv.payments.export_arrears_csv(
+                path, class_id=self.class_cb.currentData(),
+                school_year=self.year_cb.currentData(), month=self.month_cb.currentData())
+            QMessageBox.information(self, "Export CSV", f"{count} poste(s) impayé(s) exporté(s).")
+        except Exception as e:
+            handle_error(self, e)
 
 
 class FeesView(QWidget):
@@ -236,10 +323,12 @@ class FeesView(QWidget):
         self.tabs.addTab(self.collect, "Encaissement")
         self.tabs.addTab(self.arrears, "Impayés")
 
-        pay_cols = [("receipt_no", "Reçu"), ("paid_at", "Date"), ("matricule", "Matricule"),
-                    ("student_name", "Élève"), ("fee_code", "Poste", school.FEE_ITEM_LABELS),
+        pay_cols = [("class_name", "Classe"), ("school_year", "Année scolaire"),
+                    ("receipt_no", "Reçu"), ("paid_at", "Date"), ("matricule", "Matricule"),
+                    ("student_name", "Élève"), ("gender", "Genre", LABELS["gender"]),
+                    ("fee_code", "Poste", school.FEE_ITEM_LABELS),
                     ("amount", "Montant (Ar)"),
-                    ("method", "Mode", school.METHODS), ("cancelled", "État", {0: "", 1: "Annulé"})]
+                    ("method", "Mode", school.METHODS), ("payment_status", "État du paiement")]
 
         def selected_payment(view):
             row = view.model.row_at(view.table.currentIndex().row())
@@ -262,20 +351,50 @@ class FeesView(QWidget):
                 show_toast(view, "Paiement annulé", "info")
                 view.refresh()
 
+        years, classes = services.payments.history_filter_options()
+        self.history_year = QComboBox()
+        self.history_year.setObjectName("historySchoolYearFilter")
+        self.history_year.addItem("Toutes les années", None)
+        for year in years:
+            self.history_year.addItem(year, year)
+        self.history_class = QComboBox()
+        self.history_class.setObjectName("historyClassFilter")
+        self.history_class.addItem("Toutes les classes", None)
+        for school_class in classes:
+            self.history_class.addItem(school_class["name"], school_class["id"])
+        filters = QHBoxLayout()
+        filters.addWidget(QLabel("Année scolaire"))
+        filters.addWidget(self.history_year)
+        filters.addSpacing(12)
+        filters.addWidget(QLabel("Classe"))
+        filters.addWidget(self.history_class)
+        filters.addStretch(1)
+
         self.history = CrudView(services.payments, pay_cols, [], ctx, noun="paiement", read_only=True,
                                 extra_actions=[("Reçu PDF", receipt, "payments.read"),
-                                               ("Annuler le paiement", cancel, "payments.cancel")])
-        self.tabs.addTab(self.history, "Historique")
+                                               ("Annuler le paiement", cancel, "payments.cancel")],
+                                show_row_actions=False,
+                                page_loader=lambda search, sort, desc, page: services.payments.history_page(
+                                    search, sort, desc, page, school_year=self.history_year.currentData(),
+                                    class_id=self.history_class.currentData()))
+        history_tab = QWidget()
+        history_layout = QVBoxLayout(history_tab)
+        history_layout.addLayout(filters)
+        history_layout.addWidget(self.history, 1)
+        self.history_tab = history_tab
+        self.history_year.currentIndexChanged.connect(self._history_filter_changed)
+        self.history_class.currentIndexChanged.connect(self._history_filter_changed)
+        self.tabs.addTab(history_tab, "Historique")
         if ctx.session.can("fees.read"):
             amount_fields = [
                 ("droit_amount", "Droit"),
                 ("photocopy_amount", "Photocopie"),
                 ("uniform_amount", "Tenue"),
-                ("activity_1_amount", "Activité 1"),
-                ("activity_2_amount", "Activité 2"),
-                ("activity_3_amount", "Activité 3"),
-                ("activity_4_amount", "Activité 4"),
-                ("activity_5_amount", "Activité 5"),
+                ("activity_1_amount", "Calendrier"),
+                ("activity_2_amount", "Classe verte"),
+                ("activity_3_amount", "Enveloppe"),
+                ("activity_4_amount", "Fête de fin d'année"),
+                ("activity_5_amount", "Autre"),
             ]
             cols = [("class_name", "Classe"), ("school_year", "Année"),
                     ("monthly_amount", "Écolage mensuel (Ar)")] + [
@@ -294,8 +413,14 @@ class FeesView(QWidget):
 
     def _refresh_tab(self):
         w = self.tabs.currentWidget()
-        if hasattr(w, "refresh"):
+        if w is self.history_tab:
+            self.history.refresh()
+        elif hasattr(w, "refresh"):
             w.refresh()
+
+    def _history_filter_changed(self):
+        self.history.page_no = 0
+        self.history.refresh()
 
     def refresh(self):
         self._refresh_tab()

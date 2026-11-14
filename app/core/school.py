@@ -10,11 +10,11 @@ FIXED_FEE_ITEMS = {
     "droit": "Droit",
     "photocopie": "Photocopie",
     "tenue": "Tenue",
-    "activity_1": "Activité 1",
-    "activity_2": "Activité 2",
-    "activity_3": "Activité 3",
-    "activity_4": "Activité 4",
-    "activity_5": "Activité 5",
+    "activity_1": "Calendrier",
+    "activity_2": "Classe verte",
+    "activity_3": "Enveloppe",
+    "activity_4": "Fête de fin d'année",
+    "activity_5": "Autre",
 }
 CORE_FEE_CODES = ("droit", "photocopie", "tenue")
 ACTIVITY_FEE_CODES = (

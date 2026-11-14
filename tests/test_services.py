@@ -7,9 +7,10 @@ from datetime import date
 import pytest
 
 from app import config
+from app.core import school
 from app.core.exceptions import AuthenticationError, DuplicateError, PermissionDenied, ValidationError
 from app.database.connection import Database
-from app.database.schema import MIGRATION_1, migrate
+from app.database.schema import MIGRATION_1, MIGRATIONS, migrate
 from app.repositories.repos import AuditRepository
 from tests.conftest import make_env
 
@@ -25,12 +26,14 @@ def test_create_student_autogenerates_matricule(env):
 
 def test_student_schema_and_legacy_contact_privacy(env):
     ctx, svc = env
-    assert ctx.db.one("PRAGMA user_version")[0] == 6
+    assert ctx.db.one("PRAGMA user_version")[0] == 10
     class_columns = {row["name"] for row in ctx.db.all("PRAGMA table_info(classes)")}
     assert "level" not in class_columns
     assert ctx.db.one("SELECT name FROM sqlite_master WHERE type='table' AND name='tuition_fees'") is None
     columns = {row["name"] for row in ctx.db.all("PRAGMA table_info(students)")}
     assert {"guardian_name", "tutor_name", "father_name", "mother_name",
+            "tutor_phone", "father_phone", "mother_phone",
+            "tutor_profession", "father_profession", "mother_profession",
             "tuition_discount", "email", "phone"} <= columns
 
     student_id = svc.students.create({**VALID, "email": "ancien@example.test"})
@@ -54,13 +57,39 @@ def test_migration_from_existing_database_preserves_student_data():
         migrate(db)
 
         row = db.one("SELECT email, phone, guardian_name, tutor_name, father_name, mother_name, "
+                     "tutor_phone, father_phone, mother_phone, "
+                     "tutor_profession, father_profession, mother_profession, "
                      "tuition_discount FROM students WHERE matricule='E1'")
-        assert tuple(row) == ("ancien@example.test", "12345678", None, None, None, None, 0)
+        assert tuple(row) == (
+            "ancien@example.test", "12345678", None, None, None, None, None, None, None,
+            None, None, None, 0)
         teacher = db.one("SELECT position FROM teachers WHERE employee_no='ENS001'")
         assert teacher["position"] == "Enseignante"
-        assert db.one("PRAGMA user_version")[0] == 6
+        assert db.one("PRAGMA user_version")[0] == 10
         class_columns = {row["name"] for row in db.all("PRAGMA table_info(classes)")}
         assert "level" not in class_columns
+    finally:
+        db.close()
+
+
+def test_salary_migration_preserves_existing_monthly_rates():
+    db = Database()
+    try:
+        for version, sql in MIGRATIONS:
+            if version == 10:
+                break
+            db.conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version={version};\nCOMMIT;")
+        db.execute(
+            "INSERT INTO teachers (employee_no, first_name, last_name, speciality) "
+            "VALUES ('ENS001', 'Aina', 'Rakoto', 'Maîtresse')")
+        db.execute("INSERT INTO employee_salaries (employee_id, monthly_amount) VALUES (1, 350000)")
+
+        migrate(db)
+
+        salary = db.one(
+            "SELECT monthly_amount, pay_type, hourly_rate FROM employee_salaries WHERE employee_id=1")
+        assert tuple(salary) == (350000, "monthly", 0)
+        assert db.one("PRAGMA user_version")[0] == 10
     finally:
         db.close()
 
@@ -83,10 +112,23 @@ def test_class_without_level_and_optional_parent_names(env):
     assert (student["tutor_name"], student["father_name"], student["mother_name"]) == (None, None, None)
 
     svc.students.update(student_id, {**VALID, "matricule": student["matricule"], "class_id": class_id,
-                                     "tutor_name": "Tuteur", "father_name": "Père", "mother_name": "Mère"})
+                                     "tutor_name": "Tuteur", "father_name": "Père", "mother_name": "Mère",
+                                     "tutor_phone": "+261 34 12 345 67", "father_phone": "0341234567",
+                                     "mother_phone": "0321234567", "tutor_profession": "Enseignant",
+                                     "father_profession": "Agriculteur", "mother_profession": "Commerçante"})
     student = svc.students.get(student_id)
     assert (student["tutor_name"], student["father_name"], student["mother_name"]) == (
         "Tuteur", "Père", "Mère")
+    assert (student["tutor_phone"], student["father_phone"], student["mother_phone"]) == (
+        "+261 34 12 345 67", "0341234567", "0321234567")
+    assert (student["tutor_profession"], student["father_profession"], student["mother_profession"]) == (
+        "Enseignant", "Agriculteur", "Commerçante")
+
+
+def test_student_parent_phone_validation(env):
+    _, svc = env
+    with pytest.raises(ValidationError, match="Téléphone du père"):
+        svc.students.create({**VALID, "father_phone": "not a phone"})
 
 
 def test_teacher_profile_fields(env):
@@ -113,6 +155,53 @@ def test_teacher_profile_fields(env):
     with pytest.raises(ValidationError):
         svc.teachers.create({"employee_no": "ENS002", "last_name": "Rabe", "first_name": "Soa",
                              "birth_date": "1986-04-12", "hire_date": "2020-09-01"})
+
+
+def test_teacher_hourly_and_monthly_salary_disbursements(env):
+    _, svc = env
+    professor_id = svc.teachers.create({
+        "employee_no": "PROF001", "first_name": "Mamy", "last_name": "Rabe",
+        "gender": "M", "birth_date": "1980-01-01", "hire_date": "2010-01-01",
+        "position": "Professeur",
+    })
+    teacher_id = svc.teachers.create({
+        "employee_no": "ENS001", "first_name": "Aina", "last_name": "Rakoto",
+        "gender": "F", "birth_date": "1985-01-01", "hire_date": "2010-01-01",
+        "position": "Maîtresse",
+    })
+    professor_salary = svc.salaries.create({
+        "employee_id": professor_id, "pay_type": "monthly", "hourly_rate": 25000})
+    teacher_salary = svc.salaries.create({"employee_id": teacher_id, "monthly_amount": 400000})
+    professor = svc.salaries.get(professor_salary)
+    teacher = svc.salaries.get(teacher_salary)
+    assert (professor["pay_type"], professor["hourly_rate"]) == ("hourly", 25000)
+    assert professor["monthly_amount"] == 0
+    assert (teacher["pay_type"], teacher["monthly_amount"]) == ("monthly", 400000)
+
+    payout_id = svc.salary_disbursements.record({
+        "employee_id": professor_id, "title": "Indemnité horaire",
+        "payout_date": "2026-09-15", "hours": 3.5,
+    })
+    payout = svc.salary_disbursements.get(payout_id)
+    assert (payout["hours"], payout["hourly_rate"], payout["amount"]) == (3.5, 25000, 87500)
+    assert payout["school_year"] == "2026-2027"
+    assert payout["employee_no"] == "PROF001"
+    assert payout["position"] == "Professeur"
+
+    monthly_payout_id = svc.salary_disbursements.record({
+        "employee_id": teacher_id, "title": "Avance",
+        "payout_date": "2026-08-15", "amount": 100000,
+    })
+    monthly_payout = svc.salary_disbursements.get(monthly_payout_id)
+    assert monthly_payout["school_year"] == "2025-2026"
+    assert monthly_payout["amount"] == 100000
+    assert monthly_payout["hours"] is None
+
+    with pytest.raises(ValidationError):
+        svc.salary_disbursements.record({
+            "employee_id": professor_id, "title": "Salaire",
+            "payout_date": "2026-09-15", "hours": 0,
+        })
 
 
 def test_duplicate_matricule(env):
@@ -216,8 +305,10 @@ def test_fees_and_payments(env):
     assert statement["rows"][3]["due"] == 2000
     assert [row["label"] for row in statement["rows"]] == [
         "Droit", "Photocopie", "Tenue", "Septembre", "Octobre", "Novembre", "Décembre",
-        "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Activité 1", "Activité 2",
-        "Activité 3", "Activité 4", "Activité 5"]
+        "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Calendrier", "Classe verte",
+        "Enveloppe", "Fête de fin d'année", "Autre"]
+    assert tuple(school.FEE_ITEM_LABELS[code] for code in school.ACTIVITY_FEE_CODES) == (
+        "Calendrier", "Classe verte", "Enveloppe", "Fête de fin d'année", "Autre")
     assert len(statement["rows"]) == 18
     assert statement["total_due"] == 1000 + 200 + 300 + 400 + 10 * 2000
 
@@ -236,6 +327,48 @@ def test_fees_and_payments(env):
     assert svc.payments.statement(student_id)["rows"][1]["paid"] == 200
 
 
+def test_payment_history_reports_gender_and_settlement_state(env):
+    _, svc = env
+    class_id = svc.classes.create({"name": "Classe Paiements", "school_year": "2026-2027"})
+    student_id = svc.students.create({**VALID, "class_id": class_id, "gender": "F"})
+    svc.fees.create({"class_id": class_id, "monthly_amount": 0, "photocopy_amount": 200})
+
+    first_id, _ = svc.payments.record(
+        student_id, {"fee_code": "photocopie", "amount": 100, "method": "cash"})
+    first = svc.payments.page().rows[0]
+    assert first["gender"] == "F"
+    assert first["payment_status"] == "Partiel"
+
+    second_id, _ = svc.payments.record(
+        student_id, {"fee_code": "photocopie", "amount": 100, "method": "cash"})
+    rows = {row["id"]: row for row in svc.payments.page().rows}
+    assert rows[first_id]["payment_status"] == "Payé totalement"
+    assert rows[second_id]["payment_status"] == "Payé totalement"
+
+    svc.payments.cancel(second_id, "Erreur de saisie")
+    rows = {row["id"]: row for row in svc.payments.page().rows}
+    assert rows[second_id]["payment_status"] == "Annulé"
+    assert rows[first_id]["payment_status"] == "Partiel"
+
+
+def test_payment_history_is_grouped_by_class_and_school_year(env):
+    _, svc = env
+    classes = [
+        ("Classe Z", "2025-2026"),
+        ("Classe B", "2026-2027"),
+        ("Classe A", "2026-2027"),
+    ]
+    for name, year in classes:
+        class_id = svc.classes.create({"name": name, "school_year": year})
+        student_id = svc.students.create({**VALID, "first_name": name.replace(" ", ""), "class_id": class_id})
+        svc.fees.create({"class_id": class_id, "monthly_amount": 0, "droit_amount": 200})
+        svc.payments.record(student_id, {"fee_code": "droit", "amount": 100, "method": "cash"})
+
+    history = svc.payments.page().rows
+    assert [(row["class_name"], row["school_year"]) for row in history] == [
+        ("Classe A", "2026-2027"), ("Classe B", "2026-2027"), ("Classe Z", "2025-2026")]
+
+
 def test_arrears_respect_the_class_school_year(env):
     _, svc = env
     old_year = "2025-2026"
@@ -247,9 +380,46 @@ def test_arrears_respect_the_class_school_year(env):
     svc.fees.create({"class_id": old_class, "monthly_amount": 1000})
     svc.fees.create({"class_id": future_class, "monthly_amount": 1000})
 
-    arrears = svc.payments.arrears(old_class, date(2026, 9, 15))
-    assert arrears[0]["due"] == 10000
-    assert svc.payments.arrears(future_class, date(2026, 9, 15)) == []
+    arrears = svc.payments.arrears(class_id=old_class, today=date(2026, 9, 15))
+    assert sum(row["balance"] for row in arrears) == 10000
+    assert len(arrears) == 10
+    assert svc.payments.arrears(class_id=future_class, today=date(2026, 9, 15)) == []
+
+
+def test_arrears_filter_class_year_month_and_csv_export(env, tmp_path):
+    _, svc = env
+    class_id = svc.classes.create({"name": "Classe Impayés", "school_year": "2026-2027"})
+    student_id = svc.students.create({
+        **VALID, "class_id": class_id, "gender": "F", "matricule": "IMP001"})
+    svc.fees.create({
+        "class_id": class_id, "monthly_amount": 1000, "droit_amount": 500,
+        "photocopy_amount": 250,
+    })
+    svc.payments.record(
+        student_id, {"fee_code": "photocopie", "amount": 250, "method": "cash"})
+
+    all_arrears = svc.payments.arrears(
+        class_id=class_id, school_year="2026-2027", today=date(2026, 10, 15))
+    assert {(row["fee_code"], row["month"]) for row in all_arrears} == {
+        ("droit", None), ("september", 9), ("october", 10)}
+    assert all(row["class_name"] == "Classe Impayés" for row in all_arrears)
+    assert all(row["gender"] == "F" and row["matricule"] == "IMP001" for row in all_arrears)
+
+    october = svc.payments.arrears(
+        class_id=class_id, school_year="2026-2027", month=10, today=date(2026, 10, 15))
+    assert [(row["fee_code"], row["balance"]) for row in october] == [("october", 1000)]
+    assert svc.payments.arrears(
+        class_id=class_id, school_year="2026-2027", month=11, today=date(2026, 10, 15)) == []
+
+    path = tmp_path / "arrears.csv"
+    count = svc.payments.export_arrears_csv(
+        path, class_id=class_id, school_year="2026-2027", month=10,
+        today=date(2026, 10, 15))
+    exported = path.read_text(encoding="utf-8-sig")
+    assert count == 1
+    assert "Poste impayé" in exported and "Féminin" in exported
+    assert "Écolage" in exported and "Octobre" in exported and "Droit" not in exported
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
 def test_dashboard_and_billing_permissions():
@@ -301,19 +471,36 @@ def test_class_fee_migration_preserves_legacy_fees_and_payments():
 def test_csv_import_export_and_formula_injection(env, tmp_path):
     ctx, svc = env
     f = tmp_path / "in.csv"
-    f.write_text("matricule,first_name,last_name,birth_date\n"
-                 "M1,Anna,Rabe,2010-01-01\nM1,Anna,Rabe,2010-01-01\n,Bob,<b>,2010-01-01\n"
-                 ",=cmd,Rabe,2010-01-01\n", encoding="utf-8")
+    f.write_text("matricule,first_name,last_name,birth_date,tutor_phone,father_phone,mother_phone,"
+                 "tutor_profession,father_profession,mother_profession\n"
+                 "M1,Anna,Rabe,2010-01-01,0341234567,0321234567,0331234567,Enseignant,"
+                 "Agriculteur,Commerçante\n"
+                 "M1,Anna,Rabe,2010-01-01,0341234567,0321234567,0331234567,Enseignant,"
+                 "Agriculteur,Commerçante\n,Bob,<b>,2010-01-01,,,,,,\n"
+                 ",=cmd,Rabe,2010-01-01,,,,,,\n", encoding="utf-8")
     rep = svc.students.import_csv(f)
     assert rep.inserted == 1 and rep.duplicates == 1 and len(rep.errors) == 2
+    student = svc.students.get(1)
+    assert tuple(student[key] for key in ("tutor_phone", "father_phone", "mother_phone")) == (
+        "0341234567", "0321234567", "0331234567")
+    assert tuple(student[key] for key in (
+        "tutor_profession", "father_profession", "mother_profession")) == (
+            "Enseignant", "Agriculteur", "Commerçante")
     svc.students.update(1, {"first_name": "Anna", "last_name": "Rabe", "birth_date": "2010-01-01",
-                            "address": "=HYPERLINK(\"http://x\")"})
+                            "address": "=HYPERLINK(\"http://x\")",
+                            "tutor_phone": "0341234567", "father_phone": "0321234567",
+                            "mother_phone": "0331234567", "tutor_profession": "Enseignant",
+                            "father_profession": "Agriculteur", "mother_profession": "Commerçante"})
     out = tmp_path / "out.csv"
     out.write_text("ancienne exportation", encoding="utf-8")
     out.chmod(0o644)
     assert svc.students.export_csv(out) == 1
     assert stat.S_IMODE(out.stat().st_mode) == 0o600
     assert "'=HYPERLINK" in out.read_text(encoding="utf-8-sig")
+    exported = out.read_text(encoding="utf-8-sig")
+    assert all(phone in exported for phone in ("0341234567", "0321234567", "0331234567"))
+    assert all(profession in exported for profession in (
+        "Enseignant", "Agriculteur", "Commerçante"))
 
 
 def test_backups_are_private_and_use_unique_names(env, tmp_path, monkeypatch):

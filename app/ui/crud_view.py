@@ -11,12 +11,18 @@ from app.ui.utils import handle_error
 
 class CrudView(QWidget):
     def __init__(self, service, columns, fields, ctx, *, noun="élément", read_only=False,
-                 extra_actions=()):
+                 extra_actions=(), show_row_actions=True, page_loader=None,
+                 dialog_factory=FormDialog):
         super().__init__()
         self.service, self.columns, self.fields, self.ctx, self.noun = service, columns, fields, ctx, noun
         self.read_only = read_only
+        self.show_row_actions = show_row_actions
+        self.page_loader = page_loader
+        self.dialog_factory = dialog_factory
         self.sort_key, self.desc, self.page_no = None, service.default_desc, 0
-        self.display_columns = list(columns) + [("_actions", "Actions")]
+        self.display_columns = list(columns)
+        if show_row_actions:
+            self.display_columns.append(("_actions", "Actions"))
         self.model = RowsModel(self.display_columns)
 
         self.search = QLineEdit()
@@ -87,7 +93,11 @@ class CrudView(QWidget):
 
     def refresh(self):
         try:
-            page = self.service.page(self.search.text(), self.sort_key, self.desc, self.page_no)
+            if self.page_loader:
+                page = self.page_loader(
+                    self.search.text(), self.sort_key, self.desc, self.page_no)
+            else:
+                page = self.service.page(self.search.text(), self.sort_key, self.desc, self.page_no)
         except Exception as e:
             handle_error(self, e)
             return
@@ -101,6 +111,8 @@ class CrudView(QWidget):
         self._install_row_actions()
 
     def _install_row_actions(self):
+        if not self.show_row_actions:
+            return
         actions_col = len(self.display_columns) - 1
         s = self.ctx.session
         can_write = not self.read_only and s.can(self.service.write_perm)
@@ -174,7 +186,7 @@ class CrudView(QWidget):
 
     def _dialog(self, title, initial, submit, readonly=False):
         while True:
-            dlg = FormDialog(title, self.fields, initial, self, readonly=readonly)
+            dlg = self.dialog_factory(title, self.fields, initial, self, readonly=readonly)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
             if readonly:

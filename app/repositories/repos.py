@@ -4,7 +4,8 @@ from app.repositories.base import BaseRepository
 class StudentRepository(BaseRepository):
     table = "students"
     columns = ("matricule", "first_name", "last_name", "birth_date", "gender", "tutor_name",
-               "father_name", "mother_name",
+               "tutor_phone", "tutor_profession", "father_name", "father_phone", "father_profession",
+               "mother_name", "mother_phone", "mother_profession",
                "tuition_discount", "address", "class_id", "status")
     extra_cols = ", c.name AS class_name"
     joins = "LEFT JOIN classes c ON c.id = t.class_id"
@@ -17,6 +18,8 @@ class StudentRepository(BaseRepository):
     def _select(self):
         return ("SELECT t.id, t.matricule, t.first_name, t.last_name, t.birth_date, t.gender, "
                 "t.tutor_name, t.father_name, t.mother_name, t.tuition_discount, t.address, "
+                "t.tutor_phone, t.father_phone, t.mother_phone, "
+                "t.tutor_profession, t.father_profession, t.mother_profession, "
                 "t.class_id, t.status, "
                 "t.created_at, t.updated_at" + self.extra_cols +
                 f" FROM {self.table} t {self.joins}")
@@ -60,18 +63,37 @@ class AttendanceRepository(BaseRepository):
 
 class SalaryRepository(BaseRepository):
     table = "employee_salaries"
-    columns = ("employee_id", "monthly_amount")
+    columns = ("employee_id", "pay_type", "monthly_amount", "hourly_rate")
     extra_cols = (", (e.employee_no || ' — ' || e.last_name || ' ' || e.first_name) AS employee_label,"
-                  " e.employee_no, e.last_name, e.first_name, e.position")
+                  " e.employee_no, e.last_name, e.first_name, e.position,"
+                  " CASE WHEN lower(COALESCE(e.position, '')) LIKE '%prof%' THEN 'hourly' "
+                  "ELSE 'monthly' END AS pay_type,"
+                  " CASE WHEN lower(COALESCE(e.position, '')) LIKE '%prof%' "
+                  "THEN t.hourly_rate ELSE t.monthly_amount END AS base_amount")
     joins = "LEFT JOIN teachers e ON e.id = t.employee_id"
     search_fields = ("e.last_name", "e.first_name", "e.employee_no")
-    sort_fields = {"employee_label": "e.last_name", "monthly_amount": "t.monthly_amount",
+    sort_fields = {"employee_label": "e.last_name", "base_amount": "base_amount",
                    "updated_at": "t.updated_at"}
     default_sort = "e.last_name"
 
     def _select(self):
-        return (f"SELECT t.id, t.employee_id, t.monthly_amount, t.updated_at"
+        return (f"SELECT t.id, t.employee_id, t.monthly_amount, t.hourly_rate, t.updated_at"
                 f"{self.extra_cols} FROM {self.table} t {self.joins}")
+
+
+class SalaryDisbursementRepository(BaseRepository):
+    table = "salary_disbursements"
+    columns = ("employee_id", "title", "payout_date", "school_year", "hours",
+               "hourly_rate", "amount", "created_by")
+    extra_cols = (", e.employee_no, (e.last_name || ' ' || e.first_name) AS employee_name, "
+                  "e.position")
+    joins = "JOIN teachers e ON e.id = t.employee_id"
+    search_fields = ("e.employee_no", "e.last_name", "e.first_name", "t.title")
+    sort_fields = {"employee_no": "e.employee_no", "employee_name": "e.last_name",
+                   "title": "t.title", "payout_date": "t.payout_date",
+                   "school_year": "t.school_year", "amount": "t.amount"}
+    default_sort = "t.payout_date"
+    default_desc = True
 
 
 class UserRepository(BaseRepository):

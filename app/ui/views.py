@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from app.core.permissions import ROLE_LABELS
 from app.ui.crud_view import CrudView
 from app.ui.forms import Field
+from app.ui.salaries_view import SalariesView
 from app.ui.utils import LABELS
 
 GENDERS = lambda: [("Masculin", "M"), ("Féminin", "F")]
@@ -21,8 +22,14 @@ def students_view(sv, ctx):
               Field("birth_date", "Date de naissance", "date", required=True),
               Field("gender", "Genre", "combo", choices=GENDERS),
               Field("tutor_name", "Tuteur", max_len=100),
+              Field("tutor_phone", "Téléphone du tuteur", max_len=20),
+              Field("tutor_profession", "Profession du tuteur", max_len=100),
               Field("father_name", "Nom du père", max_len=100),
+              Field("father_phone", "Téléphone du père", max_len=20),
+              Field("father_profession", "Profession du père", max_len=100),
               Field("mother_name", "Nom de la mère", max_len=100),
+              Field("mother_phone", "Téléphone de la mère", max_len=20),
+              Field("mother_profession", "Profession de la mère", max_len=100),
               Field("tuition_discount", "Remise d'écolage (%)", "number", maximum=100, decimals=0, step=1, default=0),
               Field("address", "Adresse", max_len=200),
               Field("class_id", "Classe", "combo", choices=sv.classes.options),
@@ -88,11 +95,7 @@ def attendance_view(sv, ctx):
 
 
 def salaries_view(sv, ctx):
-    columns = [("employee_label", "Employé"), ("position", "Poste"),
-               ("monthly_amount", "Salaire mensuel"), ("updated_at", "Mis à jour")]
-    fields = [Field("employee_id", "Employé", "combo", required=True, choices=sv.teachers.options if ctx.session.can("teachers.read") else None),
-              Field("monthly_amount", "Salaire mensuel", "number", required=True, minimum=1, maximum=50_000_000, decimals=0, step=1000)]
-    return CrudView(sv.salaries, columns, fields, ctx, noun="salaire")
+    return SalariesView(sv, ctx)
 
 
 def users_view(sv, ctx):

@@ -18,7 +18,7 @@ _ALL = {
     "attendance.read", "attendance.write", "attendance.delete",
     "salaries.read", "salaries.write", "salaries.delete",
     "fees.read", "fees.write", "fees.delete",
-    "payments.read", "payments.write", "payments.cancel",
+    "payments.read", "payments.write", "payments.cancel", "payments.export",
     "users.manage", "audit.read", "backup.run",
 }
 
@@ -31,7 +31,7 @@ ROLE_PERMISSIONS = {
         "classes.read", "classes.write",
         "attendance.read", "attendance.write",
         "salaries.read",
-        "fees.read", "payments.read", "payments.write", "payments.cancel",
+        "fees.read", "payments.read", "payments.write", "payments.cancel", "payments.export",
     },
     "teacher": {
         "dashboard.read",

@@ -1,7 +1,7 @@
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QListWidget, QMainWindow, QMessageBox,
-                             QStackedWidget, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QListWidget, QMainWindow, QMessageBox,
+                             QMenu, QSizePolicy, QStackedWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from app.core.permissions import ROLE_LABELS
 from app.ui import views
@@ -20,7 +20,19 @@ class MainWindow(QMainWindow):
         user = ctx.session.user
         self.setWindowTitle("Gestion d'école")
         self.resize(1280, 780)
-        self.statusBar().showMessage(f"{user.full_name} — {ROLE_LABELS.get(user.role, user.role)}")
+        self._center_on_primary_screen()
+        self.user_info = QLabel(f"{user.full_name} — {ROLE_LABELS.get(user.role, user.role)}")
+        self.user_info.setObjectName("userInfo")
+        self.user_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.statusBar().addWidget(self.user_info, 1)
+        self.top_toolbar = QToolBar()
+        self.top_toolbar.setObjectName("topMenuBar")
+        self.top_toolbar.setMovable(False)
+        self.top_toolbar.setFloatable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.top_toolbar)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.top_toolbar.addWidget(spacer)
 
         pages = [
             ("Tableau de bord", "Tableau de bord", "dashboard.read", lambda: DashboardView(services, ctx)),
@@ -59,20 +71,43 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._on_page)
         self.nav.setCurrentRow(0)
 
-        menu = self.menuBar().addMenu("Compte")
+        account_menu = QMenu("Compte", self)
         for label, slot in (("Changer le mot de passe…", self.change_password), ("Se déconnecter", self.logout)):
             act = QAction(label, self)
             act.triggered.connect(slot)
-            menu.addAction(act)
+            account_menu.addAction(act)
+        self._add_toolbar_menu("Compte", account_menu)
         if ctx.session.can("backup.run"):
             act = QAction("Sauvegarder la base", self)
             act.triggered.connect(self.backup)
-            self.menuBar().addMenu("Données").addAction(act)
+            data_menu = QMenu("Données", self)
+            data_menu.addAction(act)
+            self._add_toolbar_menu("Données", data_menu)
 
         self.idle = QTimer(self)
         self.idle.setInterval(10_000)
         self.idle.timeout.connect(self._check_idle)
         self.idle.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._center_on_primary_screen)
+
+    def _center_on_primary_screen(self):
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            frame = self.frameGeometry()
+            frame.moveCenter(screen.availableGeometry().center())
+            self.move(frame.topLeft())
+
+    def _add_toolbar_menu(self, label, menu):
+        menu.setObjectName("navigationMenu")
+        button = QToolButton(self.top_toolbar)
+        button.setObjectName("statusMenuButton")
+        button.setText(label)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.setMenu(menu)
+        self.top_toolbar.addWidget(button)
 
     def _on_page(self, i):
         w = self.stack.widget(i)

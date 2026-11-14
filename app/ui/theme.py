@@ -76,7 +76,16 @@ QMenuBar::item:selected { background: #e0e7ff; }
 QMenu { background: white; border: 1px solid #e2e8f0; padding: 6px; }
 QMenu::item { padding: 7px 24px; border-radius: 6px; }
 QMenu::item:selected { background: #e0e7ff; color: #1e1b4b; }
+QMenu#navigationMenu { background: #1e1b4b; border: 1px solid #312e81; padding: 6px; }
+QMenu#navigationMenu::item { color: #c7d2fe; padding: 7px 24px; border-radius: 6px; }
+QMenu#navigationMenu::item:selected { background: #4f46e5; color: white; }
 QStatusBar { background: white; color: #64748b; border-top: 1px solid #e2e8f0; }
+QLabel#userInfo { color: #64748b; padding: 4px; }
+QToolBar#topMenuBar { background: #1e1b4b; border: none; spacing: 6px; padding: 6px 12px; }
+QToolButton#statusMenuButton { background: transparent; color: #c7d2fe; border: none;
+                               border-radius: 6px; padding: 6px 12px; font-weight: 600; }
+QToolButton#statusMenuButton:hover, QToolButton#statusMenuButton::menu-button:hover { background: #312e81; }
+QToolButton#statusMenuButton::menu-indicator { image: none; }
 QMessageBox { background: white; }
 QScrollBar:vertical { background: transparent; width: 10px; }
 QScrollBar::handle:vertical { background: #cbd5e1; border-radius: 5px; min-height: 30px; }
