@@ -1,5 +1,6 @@
 """Feuille de style globale - design moderne avec mode clair et sombre."""
 import json
+import re
 
 from app import config
 
@@ -24,6 +25,12 @@ PALETTES = {
         "row_edit_border": "#a7f3d0", "row_edit_hover": "#a7f3d0",
         "on_accent": "#ffffff", "nav_icon_idle": "#475569",
         "nav_icon_active": "#3730a3",
+        "positive": "#047857", "negative": "#b91c1c", "warning": "#b45309",
+        "series_1": "#4f46e5", "series_2": "#f97316",
+        "status_paid_bg": "#dcfce7", "status_paid_text": "#166534",
+        "status_partial_bg": "#fef3c7", "status_partial_text": "#92400e",
+        "status_due_bg": "#fee2e2", "status_due_text": "#991b1b",
+        "status_free_bg": "#f1f5f9", "status_free_text": "#475569",
     },
     "dark": {
         "main": "#0f172a", "card": "#1e293b", "sidebar": "#1e293b",
@@ -45,6 +52,12 @@ PALETTES = {
         "row_edit_border": "#064e3b", "row_edit_hover": "#064e3b",
         "on_accent": "#ffffff", "nav_icon_idle": "#cbd5e1",
         "nav_icon_active": "#c7d2fe",
+        "positive": "#6ee7b7", "negative": "#fca5a5", "warning": "#fbbf24",
+        "series_1": "#818cf8", "series_2": "#fb923c",
+        "status_paid_bg": "#064e3b", "status_paid_text": "#6ee7b7",
+        "status_partial_bg": "#78350f", "status_partial_text": "#fcd34d",
+        "status_due_bg": "#7f1d1d", "status_due_text": "#fca5a5",
+        "status_free_bg": "#334155", "status_free_text": "#cbd5e1",
     },
 }
 
@@ -202,10 +215,12 @@ QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
 """
 
 _current_mode = "light"
+_style_initialized = False
 
 
 def _theme_file():
-    return config.DATA_DIR / "theme.json"
+    # Préférence globale de l'utilisateur, partagée entre les écoles.
+    return config.ROOT_DIR / "theme.json"
 
 
 def get_theme_mode() -> str:
@@ -238,19 +253,22 @@ def current_palette() -> dict:
     return PALETTES[_current_mode]
 
 
+_PLACEHOLDER = re.compile(r"%\((\w+)\)s")
+
+
 def build_stylesheet(mode: str) -> str:
-    return _TEMPLATE % PALETTES[mode]
-
-
-STYLESHEET = build_stylesheet("light")
+    palette = PALETTES[mode]
+    return _PLACEHOLDER.sub(lambda match: palette[match.group(1)], _TEMPLATE)
 
 
 def apply_theme(app, mode: str | None = None) -> None:
-    global _current_mode
+    global _current_mode, _style_initialized
     if mode is None:
         mode = get_theme_mode()
     if mode not in PALETTES:
         mode = "light"
     _current_mode = mode
-    app.setStyle("Fusion")
+    if not _style_initialized:
+        app.setStyle("Fusion")
+        _style_initialized = True
     app.setStyleSheet(build_stylesheet(mode))

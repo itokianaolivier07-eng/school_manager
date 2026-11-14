@@ -3,6 +3,7 @@ from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
                              QMenu, QSizePolicy, QStackedWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
+from app import config
 from app.core.permissions import ROLE_LABELS
 from app.ui import views
 from app.ui.dashboard_view import DashboardView
@@ -21,7 +22,7 @@ class MainWindow(QMainWindow):
         self.sv, self.ctx = services, ctx
         self.relogin = False
         user = ctx.session.user
-        self.setWindowTitle("Gestion d'école")
+        self.setWindowTitle(f"Gestion d'école — {config.CURRENT_SCHOOL}")
         self.resize(1280, 780)
         self._center_on_primary_screen()
         self.user_info = QLabel(f"{user.full_name} - {ROLE_LABELS.get(user.role, user.role)}")

@@ -32,13 +32,14 @@ def translate_integrity(e: sqlite3.IntegrityError):
 class CrudService:
     entity = ""
     repo_cls = None
+    db_attr = "db"                 # base ciblée : "db" (école) ou "accounts" (comptes)
     read_perm = write_perm = delete_perm = ""
     default_desc = False
 
     def __init__(self, ctx):
         self.ctx = ctx
-        self.db = ctx.db
-        self.repo = self.repo_cls(ctx.db)
+        self.db = getattr(ctx, self.db_attr)
+        self.repo = self.repo_cls(self.db)
 
     # --- à surcharger ---
     def validate(self, data) -> dict:

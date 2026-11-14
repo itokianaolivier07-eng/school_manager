@@ -4,11 +4,9 @@ from PyQt6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel
                              QVBoxLayout, QWidget)
 
 from app.core import school
+from app.ui import theme
 from app.ui.charts import ProfitChart, RevenueExpenseChart
 from app.ui.utils import handle_error
-
-POSITIVE = "#047857"
-NEGATIVE = "#b91c1c"
 
 
 def _card(title, value, subtitle="", color=None):
@@ -95,12 +93,13 @@ class MonthDetail(QFrame):
             empty.setObjectName("muted")
             self.grid.addWidget(empty, 0, 0, 1, 2)
             return
+        pal = theme.current_palette()
         rows = (
-            ("Encaissements du mois", month["collected"], POSITIVE),
-            ("Salaires & avances", -month["salaries"], NEGATIVE),
-            ("Loyer", -month["loyer"], NEGATIVE),
-            ("Eau / Électricité", -month["utilities"], NEGATIVE),
-            ("Autres charges", -month["other"], NEGATIVE),
+            ("Encaissements du mois", month["collected"], pal["positive"]),
+            ("Salaires & avances", -month["salaries"], pal["negative"]),
+            ("Loyer", -month["loyer"], pal["negative"]),
+            ("Eau / Électricité", -month["utilities"], pal["negative"]),
+            ("Autres charges", -month["other"], pal["negative"]),
         )
         for index, (label, value, color) in enumerate(rows):
             self.grid.addWidget(self._text(label, "detailLabel"), index, 0)
@@ -112,7 +111,7 @@ class MonthDetail(QFrame):
         profit = month["profit"]
         profit_text = ("+ " if profit > 0 else "") + school.fmt_ar(profit)
         self.grid.addWidget(self._text("Bénéfice du mois", "detailTotal"), len(rows) + 1, 0)
-        self.grid.addWidget(self._value(profit_text, POSITIVE if profit >= 0 else NEGATIVE,
+        self.grid.addWidget(self._value(profit_text, pal["positive"] if profit >= 0 else pal["negative"],
                                         "detailTotal"), len(rows) + 1, 1)
 
     @staticmethod
@@ -251,24 +250,26 @@ class DashboardView(QWidget):
         month = months[self.selected_index]
         self._render_finance_kpis(month, finance["totals"], finance["school_year"])
         labels = [item["short_label"] for item in months]
+        pal = theme.current_palette()
         self.revenue_chart.set_data(labels, [
-            ("Recettes", "#4f46e5", [item["collected"] for item in months]),
-            ("Dépenses", "#f97316", [item["spending"] for item in months]),
+            ("Recettes", pal["series_1"], [item["collected"] for item in months]),
+            ("Dépenses", pal["series_2"], [item["spending"] for item in months]),
         ])
         self.profit_chart.set_data(labels, [item["profit"] for item in months])
         self.detail.set_months(months, self.selected_index)
         self._select_month(self.selected_index, render_detail=True)
 
     def _render_finance_kpis(self, month, totals, school_year):
+        pal = theme.current_palette()
         cards = [
             ("Bénéfice du mois", ("+ " if month["profit"] > 0 else "") + school.fmt_ar(month["profit"]),
-             f"{month['label']} {month['year']}", POSITIVE if month["profit"] >= 0 else NEGATIVE),
+             f"{month['label']} {month['year']}", pal["positive"] if month["profit"] >= 0 else pal["negative"]),
             ("Bénéfice cumulé", ("+ " if totals["profit"] > 0 else "") + school.fmt_ar(totals["profit"]),
-             f"Année {school_year}", POSITIVE if totals["profit"] >= 0 else NEGATIVE),
+             f"Année {school_year}", pal["positive"] if totals["profit"] >= 0 else pal["negative"]),
             ("Encaissements du mois", school.fmt_ar(month["collected"]),
-             "Écolage et inscriptions", "#4f46e5"),
+             "Écolage et inscriptions", pal["series_1"]),
             ("Dépenses du mois", school.fmt_ar(month["spending"]),
-             "Salaires et charges", "#b45309"),
+             "Salaires et charges", pal["warning"]),
         ]
         for index, (title, value, subtitle, color) in enumerate(cards):
             self.fin_kpi.addWidget(_card(title, value, subtitle, color), 0, index)

@@ -9,6 +9,7 @@ from app.services.base import CrudService
 class UserService(CrudService):
     entity = "users"
     repo_cls = UserRepository
+    db_attr = "accounts"           # les comptes sont communs aux trois écoles
     read_perm = write_perm = delete_perm = "users.manage"
 
     def validate(self, data):

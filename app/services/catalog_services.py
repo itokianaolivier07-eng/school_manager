@@ -4,6 +4,7 @@ import sqlite3
 from app.core import validators as V
 from app.core import school
 from app.core.exceptions import NotFoundError, ValidationError
+from app.repositories.base import used_school_years
 from app.repositories.repos import ClassRepository, TeacherRepository
 from app.services.base import CrudService, Page, translate_integrity
 
@@ -28,11 +29,7 @@ class TeacherService(_OptionsMixin, CrudService):
         self.school_year = school.current_school_year()
 
     def school_year_options(self):
-        years = [r["school_year"] for r in self.db.all(
-            "SELECT DISTINCT school_year FROM classes ORDER BY school_year DESC"
-        )]
-        years.extend(self.repo.years())
-        return sorted(set(years) | {school.current_school_year()}, reverse=True)
+        return used_school_years(self.db)
 
     def select_school_year(self, school_year):
         self.school_year = school_year or school.current_school_year()
@@ -117,8 +114,11 @@ class ClassService(_OptionsMixin, CrudService):
         self.school_year = school.current_school_year()
 
     def school_year_options(self):
-        years = self.repo.years()
-        return sorted(set(years) | {school.current_school_year()}, reverse=True)
+        return used_school_years(self.db)
+
+    def years_with_classes(self) -> list:
+        """Années disposant réellement de classes : sert aux choix d'inscription/affectation."""
+        return self.repo.years()
 
     def select_school_year(self, school_year):
         self.school_year = school_year or school.current_school_year()

@@ -16,6 +16,8 @@ def _chart_colors() -> dict:
         "text": QColor(p["muted"]),
         "highlight": QColor(p["active"]),
         "empty": QColor(p["faint"]),
+        "positive": QColor(p["positive"]),
+        "negative": QColor(p["negative"]),
     }
 
 
@@ -155,9 +157,6 @@ class RevenueExpenseChart(_BaseChart):
 class ProfitChart(_BaseChart):
     """Barres divergentes : bénéfice net (positif/négatif) de chaque mois."""
 
-    POSITIVE = QColor("#10b981")
-    NEGATIVE = QColor("#ef4444")
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.values = []
@@ -182,12 +181,13 @@ class ProfitChart(_BaseChart):
         baseline = rect.center().y()
         slot = rect.width() / count
         bar = min(slot * 0.5, 48)
+        colors = _chart_colors()
         for index, value in enumerate(self.values):
             height = abs(value) / top * (rect.height() / 2)
             x = rect.left() + slot * index + (slot - bar) / 2
             top_y = baseline - height if value >= 0 else baseline
             painter.fillRect(QRectF(x, top_y, bar, height),
-                             self.POSITIVE if value >= 0 else self.NEGATIVE)
+                             colors["positive"] if value >= 0 else colors["negative"])
         self.draw_labels(painter, rect)
 
     def draw_axis(self, painter, rect, top):

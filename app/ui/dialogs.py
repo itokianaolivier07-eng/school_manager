@@ -1,7 +1,8 @@
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QFrame, QLabel, QLineEdit,
-                             QVBoxLayout)
+from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QLabel,
+                             QLineEdit, QVBoxLayout)
 
+from app import config
 from app.core.exceptions import AppError, ValidationError
 from app.ui.utils import handle_error
 
@@ -71,6 +72,22 @@ class _BaseDialog(QDialog):
 
     def on_submit(self):
         raise NotImplementedError
+
+
+class SchoolDialog(_BaseDialog):
+    """Sélection de l'école à gérer : chaque établissement a ses données isolées."""
+
+    def __init__(self):
+        super().__init__("Choix de l'établissement")
+        self.subtitle.setText("Sélectionnez l'école à gérer.")
+        self.combo = QComboBox()
+        self.combo.addItems(config.SCHOOLS)
+        self.form.addRow("École", self.combo)
+        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Ouvrir")
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Quitter")
+
+    def on_submit(self):
+        config.use_school(self.combo.currentIndex())
 
 
 class LoginDialog(_BaseDialog):

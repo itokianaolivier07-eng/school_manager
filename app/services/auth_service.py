@@ -14,8 +14,8 @@ GENERIC_ERROR = "Identifiants incorrects."
 class AuthService:
     def __init__(self, ctx):
         self.ctx = ctx
-        self.db = ctx.db
-        self.users = UserRepository(ctx.db)
+        self.db = ctx.accounts          # les comptes sont communs aux trois écoles
+        self.users = UserRepository(ctx.accounts)
 
     def has_users(self) -> bool:
         return self.users.count_all() > 0

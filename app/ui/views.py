@@ -107,7 +107,7 @@ def students_view(sv, ctx, on_change=None):
         student_id = view._row_id()
         if student_id is None:
             return
-        available_years = [y for y in sv.classes.school_year_options()
+        available_years = [y for y in sv.classes.years_with_classes()
                            if y != sv.students.school_year]
         if not available_years:
             QMessageBox.information(view, "Inscription", "Aucune autre année scolaire n'a de classe.")

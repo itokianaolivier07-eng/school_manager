@@ -1,6 +1,7 @@
 from datetime import date
 
 from app.core import school
+from app.repositories.base import used_school_years
 
 
 class DashboardService:
@@ -40,14 +41,7 @@ class DashboardService:
 
     def finance_year_options(self) -> list:
         self.ctx.session.require("dashboard.read")
-        rows = self.db.all(
-            "SELECT school_year FROM class_tuition_fees "
-            "UNION SELECT school_year FROM payments "
-            "UNION SELECT school_year FROM classes "
-            "UNION SELECT school_year FROM salary_disbursements")
-        years = {row["school_year"] for row in rows if row["school_year"]}
-        years.add(school.current_school_year())
-        return sorted(years, reverse=True)
+        return used_school_years(self.db)
 
     def finance_series(self, school_year=None, today=None):
         """Bénéfice mois par mois de l'année scolaire (septembre -> juin).

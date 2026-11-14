@@ -10,12 +10,22 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFileDialog,
 from app import config
 from app.core import school
 from app.core.exceptions import AppError
+from app.ui import theme
 from app.ui.crud_view import CrudView
 from app.ui.forms import Field, FormDialog
 from app.ui.toast import show_toast
 from app.ui.utils import LABELS, ask_confirmation, handle_error
 
-STATUS_COLORS = {"Payé": "#dcfce7", "Partiel": "#fef3c7", "Impayé": "#fee2e2", "Gratuit": "#f1f5f9"}
+
+def _status_colors(status):
+    """Couleurs de statut issues de la palette active (cohérentes clair/sombre)."""
+    pal = theme.current_palette()
+    return {
+        "Payé": (pal["status_paid_bg"], pal["status_paid_text"]),
+        "Partiel": (pal["status_partial_bg"], pal["status_partial_text"]),
+        "Impayé": (pal["status_due_bg"], pal["status_due_text"]),
+        "Gratuit": (pal["status_free_bg"], pal["status_free_text"]),
+    }.get(status, (pal["card"], pal["text"]))
 
 
 def _replace_combo_items(combo, items, selected):
@@ -166,10 +176,11 @@ class CollectTab(QWidget):
         for i, r in enumerate(self.rows):
             cells = [r["label"], school.fmt_ar(r["due"]), school.fmt_ar(r["paid"]),
                      school.fmt_ar(r["balance"]), r["status"]]
+            bg, fg = _status_colors(r["status"])
             for j, text in enumerate(cells):
                 it = _item(text)
-                it.setBackground(QBrush(QColor(STATUS_COLORS[r["status"]])))
-                it.setForeground(QBrush(QColor("#1e293b")))
+                it.setBackground(QBrush(QColor(bg)))
+                it.setForeground(QBrush(QColor(fg)))
                 self.table.setItem(i, j, it)
         self.totals.setText(f"Total dû : <b>{school.fmt_ar(st['total_due'])}</b> - payé : "
                             f"<b>{school.fmt_ar(st['total_paid'])}</b> - reste : "

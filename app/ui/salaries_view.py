@@ -40,7 +40,7 @@ class SalaryDisbursementDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(440)
         self.error = QLabel()
-        self.error.setStyleSheet("color: #b00020;")
+        self.error.setObjectName("error")
         self.error.setWordWrap(True)
 
         self.employee = QComboBox()

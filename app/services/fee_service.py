@@ -8,6 +8,7 @@ from app import config
 from app.core import school
 from app.core import validators as V
 from app.core.exceptions import NotFoundError, ValidationError
+from app.repositories.base import used_school_years
 from app.repositories.finance_repos import (ExpenseRepository, PaymentRepository,
                                             TuitionFeeRepository)
 from app.services.base import CrudService, Page
@@ -52,8 +53,7 @@ class PaymentService(CrudService):
         self.ctx.session.require(self.read_perm)
         if school_year is not None:
             school_year = V.school_year({"school_year": school_year}, "school_year")
-        years = [r["school_year"] for r in self.db.all(
-            "SELECT DISTINCT school_year FROM payments ORDER BY school_year DESC")]
+        years = used_school_years(self.db)
         params = ()
         year_filter = ""
         if school_year is not None:
@@ -202,8 +202,7 @@ class PaymentService(CrudService):
         self.ctx.session.require("payments.read")
         if school_year is not None:
             school_year = V.school_year({"school_year": school_year}, "school_year")
-        years = [r["school_year"] for r in self.db.all(
-            "SELECT DISTINCT school_year FROM class_tuition_fees ORDER BY school_year DESC")]
+        years = used_school_years(self.db)
         params = ()
         year_filter = ""
         if school_year is not None:

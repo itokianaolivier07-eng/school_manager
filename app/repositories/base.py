@@ -1,8 +1,34 @@
 """Repository générique : tout le SQL est paramétré, tri/recherche en liste blanche."""
+from app.core import school
+
+# Tables portant une année scolaire explicite (les charges sont datées, donc traitées à part).
+_YEAR_TABLES = ("classes", "student_enrollments", "employee_school_years",
+                "class_tuition_fees", "payments", "salary_disbursements")
 
 
 def escape_like(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def used_school_years(db) -> list:
+    """Toutes les années scolaires déjà utilisées dans l'application, plus l'année courante.
+
+    Source unique des filtres « Année scolaire » : une année apparaît dès qu'une donnée
+    la référence (classe, inscription, employé affecté, tarif, paiement, salaire, charge),
+    et l'année courante (calculée sur l'horloge) est toujours proposée."""
+    rows = db.all(" UNION ".join(f"SELECT school_year FROM {table}" for table in _YEAR_TABLES))
+    years = {row["school_year"] for row in rows if row["school_year"]}
+    for row in db.all("SELECT DISTINCT substr(expense_date, 1, 4) AS y, "
+                      "substr(expense_date, 6, 2) AS m FROM expenses"):
+        try:                                    # une charge sans année propre : déduite de sa date
+            start = int(row["y"])
+        except (TypeError, ValueError):
+            continue
+        if (row["m"] or "") < "09":             # septembre -> décembre appartiennent à l'année du début
+            start -= 1
+        years.add(f"{start}-{start + 1}")
+    years.add(school.current_school_year())
+    return sorted(years, reverse=True)
 
 
 class BaseRepository:
