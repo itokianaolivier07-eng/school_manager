@@ -13,22 +13,26 @@ class DashboardService:
         s = self.ctx.session
         s.require("dashboard.read")
         one = lambda sql, p=(): self.db.one(sql, p)[0]
+        current_year = school.current_school_year()
         data = {
-            "students": one("SELECT COUNT(*) FROM students WHERE status = 'active'"),
-            "classes": one("SELECT COUNT(*) FROM classes"),
-            "employees": one("SELECT COUNT(*) FROM teachers"),
-            "school_year": school.current_school_year(),
+            "students": one("SELECT COUNT(*) FROM students s JOIN student_enrollments e "
+                            "ON e.student_id = s.id WHERE s.status = 'active' AND e.school_year = ?",
+                            (current_year,)),
+            "classes": one("SELECT COUNT(*) FROM classes WHERE school_year = ?", (current_year,)),
+            "employees": one("SELECT COUNT(*) FROM employee_school_years WHERE school_year = ?",
+                             (current_year,)),
+            "school_year": current_year,
         }
         if s.can("payments.read"):
             year = data["school_year"]
             data["collected_year"] = one("SELECT COALESCE(SUM(amount),0) FROM payments "
                                          "WHERE cancelled = 0 AND school_year = ?", (year,))
             data["collected_month"] = one("SELECT COALESCE(SUM(amount),0) FROM payments WHERE cancelled = 0 "
-                                          "AND strftime('%Y-%m', paid_at) = strftime('%Y-%m', 'now')")
+                                          "AND strftime('%Y-%m', paid_at) = strftime('%Y-%m', 'now', 'localtime')")
         if s.can("attendance.read"):
             data["present_today"] = one(
                 "SELECT COUNT(*) FROM employee_attendance "
-                "WHERE attendance_date = date('now') AND status IN ('present','late')")
+                "WHERE attendance_date = date('now', 'localtime') AND status IN ('present','late')")
         if s.can("salaries.read"):
             data["salary_total"] = one("SELECT COALESCE(SUM(monthly_amount),0) FROM employee_salaries")
         return data
@@ -53,8 +57,10 @@ class DashboardService:
         if not self.finance_available():
             return None
         year = school.current_school_year(today) if school_year is None else school_year
+        start_year = int(str(year).split("-")[0])
         months = []
-        for month_year, month in school.school_year_months(year):
+        for month_year, month in (*school.school_year_months(year),
+                                  (start_year + 1, 7), (start_year + 1, 8)):
             months.append({
                 "year": month_year, "month": month,
                 "ym": f"{month_year:04d}-{month:02d}",
@@ -64,24 +70,24 @@ class DashboardService:
                 "expenses": 0, "spending": 0, "profit": 0,
             })
         by_month = {m["ym"]: m for m in months}
+        window = (f"{start_year}-09-01", f"{start_year + 1}-08-31")
 
         for row in self.db.all(
                 "SELECT strftime('%Y-%m', paid_at) AS ym, SUM(amount) AS total FROM payments "
-                "WHERE cancelled = 0 AND school_year = ? GROUP BY ym", (year,)):
+                "WHERE cancelled = 0 AND paid_at BETWEEN ? AND ? GROUP BY ym", window):
             if row["ym"] in by_month:
                 by_month[row["ym"]]["collected"] = row["total"] or 0
 
         for row in self.db.all(
                 "SELECT strftime('%Y-%m', payout_date) AS ym, SUM(amount) AS total "
-                "FROM salary_disbursements WHERE school_year = ? GROUP BY ym", (year,)):
+                "FROM salary_disbursements WHERE payout_date BETWEEN ? AND ? GROUP BY ym", window):
             if row["ym"] in by_month:
                 by_month[row["ym"]]["salaries"] = row["total"] or 0
 
-        start, end = school.school_year_bounds(year)
         for row in self.db.all(
                 "SELECT strftime('%Y-%m', expense_date) AS ym, category, SUM(amount) AS total "
                 "FROM expenses WHERE expense_date BETWEEN ? AND ? GROUP BY ym, category",
-                (start, end)):
+                window):
             month_row = by_month.get(row["ym"])
             if month_row is None:
                 continue

@@ -25,7 +25,7 @@ def test_create_student_autogenerates_matricule(env):
 
 def test_student_schema_and_legacy_contact_privacy(env):
     ctx, svc = env
-    assert ctx.db.one("PRAGMA user_version")[0] == 14
+    assert ctx.db.one("PRAGMA user_version")[0] == 15
     class_columns = {row["name"] for row in ctx.db.all("PRAGMA table_info(classes)")}
     assert "level" not in class_columns
     assert ctx.db.one("SELECT name FROM sqlite_master WHERE type='table' AND name='tuition_fees'") is None
@@ -64,7 +64,7 @@ def test_migration_from_existing_database_preserves_student_data():
             None, None, None, 0)
         teacher = db.one("SELECT position FROM teachers WHERE employee_no='ENS001'")
         assert teacher["position"] == "Enseignante"
-        assert db.one("PRAGMA user_version")[0] == 14
+        assert db.one("PRAGMA user_version")[0] == 15
         class_columns = {row["name"] for row in db.all("PRAGMA table_info(classes)")}
         assert "level" not in class_columns
     finally:
@@ -88,7 +88,7 @@ def test_salary_migration_preserves_existing_monthly_rates():
         salary = db.one(
             "SELECT monthly_amount, pay_type, hourly_rate FROM employee_salaries WHERE employee_id=1")
         assert tuple(salary) == (350000, "monthly", 0)
-        assert db.one("PRAGMA user_version")[0] == 14
+        assert db.one("PRAGMA user_version")[0] == 15
     finally:
         db.close()
 
@@ -104,7 +104,7 @@ def test_arrears_index_migration_from_existing_database():
         assert db.one("PRAGMA user_version")[0] == 10
         migrate(db)
 
-        assert db.one("PRAGMA user_version")[0] == 14
+        assert db.one("PRAGMA user_version")[0] == 15
         assert db.one(
             "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_payments_arrears'")
     finally:
@@ -312,10 +312,21 @@ def test_30000_students_pagination_and_search(env):
     assert elapsed < 1.0, f"trop lent : {elapsed:.2f}s"
 
 
-def test_audit_log_is_removed(env):
-    ctx, _ = env
-    assert ctx.db.one(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'") is None
+def test_audit_log_records_actions_and_is_immutable(env):
+    ctx, svc = env
+    expense_id = svc.expenses.create({"category": "eau", "amount": 1000, "expense_date": "2026-09-05"})
+    svc.expenses.delete(expense_id)
+    svc.users.create({"username": "marie", "full_name": "Marie", "role": "secretary",
+                      "password": "Str0ng!Passw0rd2"})
+    rows = ctx.db.all("SELECT action, entity, username, detail FROM audit_log ORDER BY id")
+    assert [(r["action"], r["entity"]) for r in rows] == [
+        ("create", "expenses"), ("delete", "expenses"), ("create", "users")]
+    assert all(r["username"] == "admin" for r in rows)
+    assert all("password" not in (r["detail"] or "") for r in rows)
+    with pytest.raises(sqlite3.IntegrityError):
+        ctx.db.execute("DELETE FROM audit_log")
+    with pytest.raises(sqlite3.IntegrityError):
+        ctx.db.execute("UPDATE audit_log SET action='x'")
 
 
 def test_lockout_after_failed_logins(env):
@@ -721,7 +732,7 @@ def test_dashboard_finance_series_follows_profit_formula(env):
 
     series = svc.dashboard.finance_series(year, today=date(2026, 9, 20))
     assert series["school_year"] == year
-    assert len(series["months"]) == len(school.SCHOOL_MONTHS)
+    assert len(series["months"]) == len(school.SCHOOL_MONTHS) + 2   # + juillet et août
     by_ym = {month["ym"]: month for month in series["months"]}
 
     september = by_ym["2026-09"]
@@ -829,3 +840,48 @@ def test_backups_are_private_and_use_unique_names(env, tmp_path, monkeypatch):
 
     assert first != second
     assert stat.S_IMODE(os.stat(first).st_mode) == 0o600
+
+
+def test_recreated_username_does_not_break_school_mirror_or_history(env):
+    from app.database.accounts import mirror_users
+    ctx, svc = env
+    jean = svc.users.create({"username": "jean", "full_name": "Jean", "role": "secretary",
+                             "password": "Str0ng!Passw0rd2"})
+    mirror_users(ctx.accounts, ctx.db)
+    svc.users.delete(jean)
+    marie = svc.users.create({"username": "marie", "full_name": "Marie", "role": "secretary",
+                              "password": "Str0ng!Passw0rd2"})
+    assert marie != jean                                   # identifiant jamais réattribué
+    again = svc.users.create({"username": "jean", "full_name": "Jean (retour)", "role": "secretary",
+                              "password": "Str0ng!Passw0rd2"})
+    mirror_users(ctx.accounts, ctx.db)                     # ne doit pas lever d'IntegrityError
+    names = {r["id"]: r["full_name"] for r in ctx.db.all("SELECT id, full_name FROM users")}
+    assert names[jean] == "Jean" and names[again] == "Jean (retour)"   # l'historique n'est pas réécrit
+
+
+def test_exported_students_can_be_reimported_with_their_class(env, tmp_path):
+    ctx, svc = env
+    year = school.current_school_year()
+    class_id = svc.classes.create({"name": "CP", "school_year": year})
+    svc.students.create({**VALID, "birth_date": "2019-03-01", "class_id": class_id})
+    out = tmp_path / "e.csv"
+    svc.students.export_csv(out)
+    ctx2, svc2 = make_env("admin")
+    class2 = svc2.classes.create({"name": "CP", "school_year": year})
+    assert svc2.students.import_csv(out).inserted == 1
+    assert svc2.students.page().rows[0]["class_id"] == class2
+
+
+def test_finance_series_counts_july_and_august(env):
+    ctx, svc = env
+    year = "2026-2027"
+    class_id = svc.classes.create({"name": "Eté", "school_year": year})
+    student_id = svc.students.create({**VALID, "class_id": class_id})
+    ctx.db.execute("INSERT INTO payments (student_id, school_year, kind, month, fee_code, amount, "
+                   "method, paid_at) VALUES (?, ?, 'registration', NULL, 'droit', 5000, 'cash', '2027-07-20')",
+                   (student_id, year))
+    ctx.db.execute("INSERT INTO expenses (category, label, amount, expense_date) "
+                   "VALUES ('loyer', '', 300000, '2027-07-05')")
+    series = svc.dashboard.finance_series(year, today=date(2026, 9, 20))
+    assert series["totals"]["collected"] == 5000 and series["totals"]["loyer"] == 300000
+    assert [m["ym"] for m in series["months"]][-2:] == ["2027-07", "2027-08"]

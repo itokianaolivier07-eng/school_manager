@@ -42,7 +42,7 @@ class ExpenseRepository(BaseRepository):
 class PaymentRepository(BaseRepository):
     table = "payments"
     columns = ("receipt_no", "student_id", "school_year", "kind", "month", "fee_code", "amount", "method",
-               "reference", "received_by")
+               "reference", "received_by", "paid_at")
     extra_cols = (", c.name AS class_name, (s.last_name || ' ' || s.first_name) AS student_name, "
                   "s.matricule AS matricule, "
                   "s.gender AS gender, "

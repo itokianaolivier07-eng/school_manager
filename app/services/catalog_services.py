@@ -6,6 +6,7 @@ from app.core import school
 from app.core.exceptions import NotFoundError, ValidationError
 from app.repositories.base import used_school_years
 from app.repositories.repos import ClassRepository, TeacherRepository
+from app.services.audit import clean_detail, log_event
 from app.services.base import CrudService, Page, translate_integrity
 
 
@@ -59,6 +60,7 @@ class TeacherService(_OptionsMixin, CrudService):
                 self.repo.assign_year(employee_id, self.school_year)
             except sqlite3.IntegrityError as e:
                 raise translate_integrity(e) from e
+            log_event(self.ctx, "create", self.entity, employee_id, clean_detail(clean))
         return employee_id
 
     def assign_year(self, employee_id, school_year):

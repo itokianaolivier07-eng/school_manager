@@ -249,9 +249,10 @@ class UserRepository(BaseRepository):
 
     def register_failure(self, id_, max_attempts, locked_until):
         self.db.execute(
-            "UPDATE users SET failed_attempts = failed_attempts + 1, "
-            "locked_until = CASE WHEN failed_attempts + 1 >= ? THEN ? ELSE locked_until END "
-            "WHERE id = ?", (max_attempts, locked_until, id_))
+            "UPDATE users SET "
+            "locked_until = CASE WHEN failed_attempts + 1 >= ? THEN ? ELSE locked_until END, "
+            "failed_attempts = CASE WHEN failed_attempts + 1 >= ? THEN 0 ELSE failed_attempts + 1 END "
+            "WHERE id = ?", (max_attempts, locked_until, max_attempts, id_))
 
     def reset_failures(self, id_):
         self.db.execute("UPDATE users SET failed_attempts=0, locked_until=NULL WHERE id=?", (id_,))

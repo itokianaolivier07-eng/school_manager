@@ -11,6 +11,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.repositories.base import used_school_years
 from app.repositories.finance_repos import (ExpenseRepository, PaymentRepository,
                                             TuitionFeeRepository)
+from app.services.audit import log_event
 from app.services.base import CrudService, Page
 from app.services.student_service import csv_safe
 
@@ -138,6 +139,11 @@ class PaymentService(CrudService):
         user = self.ctx.session.require("payments.write")
         if school_year is not None:
             school_year = V.school_year({"school_year": school_year}, "school_year")
+        if school_year is None:
+            current = school.current_school_year()
+            if self.db.one("SELECT 1 FROM student_enrollments WHERE student_id=? AND school_year=?",
+                           (int(student_id), current)):
+                school_year = current
         if "fee_code" in data:
             fee_code = V.choice(data, "fee_code", "Poste", school.FEE_ITEM_CODES)
         else:
@@ -166,9 +172,13 @@ class PaymentService(CrudService):
             year = st["student"]["school_year"]
             pid = self.repo.insert({"student_id": st["student"]["id"], "school_year": year, "kind": kind,
                                     "month": month, "fee_code": fee_code, "amount": amount, "method": method,
-                                    "reference": reference, "received_by": user.id})
+                                    "reference": reference, "received_by": user.id,
+                                    "paid_at": date.today().isoformat()})   # date locale, pas UTC
             receipt = f"R{year[:4]}-{pid:06d}"
             self.db.execute("UPDATE payments SET receipt_no = ? WHERE id = ?", (receipt, pid))
+            log_event(self.ctx, "record", "payments", pid,
+                      {"receipt": receipt, "student_id": st["student"]["id"], "school_year": year,
+                       "fee_code": fee_code, "amount": amount, "method": method})
         return pid, receipt
 
     def cancel(self, payment_id, reason):
@@ -182,8 +192,11 @@ class PaymentService(CrudService):
                 raise NotFoundError("Paiement introuvable.")
             if row["cancelled"]:
                 raise ValidationError("Ce paiement est déjà annulé.")
-            self.db.execute("UPDATE payments SET cancelled = 1, cancel_reason = ? WHERE id = ?",
-                            (reason, int(payment_id)))
+            self.db.execute(
+                "UPDATE payments SET cancelled = 1, cancel_reason = ?, cancelled_by = ?, "
+                "cancelled_at = datetime('now','localtime') WHERE id = ?",
+                (reason, user.id, int(payment_id)))
+            log_event(self.ctx, "cancel", "payments", int(payment_id), {"reason": reason})
 
     def receipt_data(self, payment_id):
         self.ctx.session.require("payments.read")
@@ -390,7 +403,8 @@ class PaymentService(CrudService):
         )
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", newline="", encoding="utf-8-sig") as file:
-            os.fchmod(file.fileno(), 0o600)
+            if hasattr(os, "fchmod"):          # absent sous Windows (Python < 3.13)
+                os.fchmod(file.fileno(), 0o600)
             writer = csv.writer(file)
             writer.writerow([label for _, label in columns])
             for row in rows:

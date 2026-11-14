@@ -16,6 +16,7 @@ from app.database.accounts import migrate_accounts, mirror_users
 from app.database.connection import Database
 from app.database.schema import migrate
 from app.services import Services
+from app.services.backup_service import BackupService
 from app.services.auth_service import AuthService
 from app.ui.dialogs import ChangePasswordDialog, LoginDialog, SchoolDialog, SetupDialog
 from app.ui.main_window import MainWindow
@@ -70,6 +71,10 @@ def main() -> int:
             migrate(db)
             mirror_users(accounts, db)
             ctx = AppContext(db, session, accounts)
+            try:
+                BackupService(ctx).auto_backup()
+            except Exception:
+                logging.getLogger(__name__).warning("Sauvegarde automatique impossible", exc_info=True)
             window = MainWindow(Services(ctx), ctx)
             window.show()
             app.exec()

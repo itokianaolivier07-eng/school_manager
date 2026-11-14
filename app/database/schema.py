@@ -15,6 +15,7 @@ from app.database.migration11 import MIGRATION_11
 from app.database.migration12 import MIGRATION_12
 from app.database.migration13 import MIGRATION_13
 from app.database.migration14 import MIGRATION_14
+from app.database.migration15 import MIGRATION_15
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +102,8 @@ CREATE INDEX idx_grades_subject_term ON grades(subject_id, term);
 MIGRATIONS = [(1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3), (4, MIGRATION_4),
               (5, MIGRATION_5), (6, MIGRATION_6), (7, MIGRATION_7), (8, MIGRATION_8),
               (9, MIGRATION_9), (10, MIGRATION_10), (11, MIGRATION_11),
-              (12, MIGRATION_12), (13, MIGRATION_13), (14, MIGRATION_14)]
+              (12, MIGRATION_12), (13, MIGRATION_13), (14, MIGRATION_14),
+              (15, MIGRATION_15)]
 
 
 def migrate(db) -> None:

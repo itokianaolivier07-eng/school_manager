@@ -56,8 +56,8 @@ def test_dashboard_tracks_monthly_profit_and_charges_page(qapp):
     dashboard = window.stack.widget(0)
 
     assert dashboard.finance is not None
-    assert dashboard.detail.combo.count() == len(school.SCHOOL_MONTHS)
-    assert len(dashboard.profit_chart.values) == len(school.SCHOOL_MONTHS)
+    assert dashboard.detail.combo.count() == len(school.SCHOOL_MONTHS) + 2   # + juillet et août
+    assert len(dashboard.profit_chart.values) == len(school.SCHOOL_MONTHS) + 2
     assert any(value < 0 for value in dashboard.profit_chart.values)
     labels = [button.label_text for button in window.sidebar._buttons]
     assert labels.index("Charges") == labels.index("Écolages") + 1

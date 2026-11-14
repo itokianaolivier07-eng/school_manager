@@ -13,6 +13,7 @@ from app.core import school
 from app.core.exceptions import AppError, NotFoundError, ValidationError
 from app.repositories.base import used_school_years
 from app.repositories.repos import StudentRepository
+from app.services.audit import clean_detail, log_event
 from app.services.base import CrudService, Page, translate_integrity
 
 EXPORT_COLS = ("matricule", "last_name", "first_name", "birth_date", "gender", "tutor_name",
@@ -146,6 +147,7 @@ class StudentService(CrudService):
                 self.repo.enroll(student_id, class_id, self.school_year)
             except sqlite3.IntegrityError as e:
                 raise translate_integrity(e) from e
+            log_event(self.ctx, "create", self.entity, student_id, clean_detail(clean))
         return student_id
 
     def update(self, id_, data) -> None:
@@ -172,6 +174,7 @@ class StudentService(CrudService):
                     (id_, enrollment_year, class_id))
             except sqlite3.IntegrityError as e:
                 raise translate_integrity(e) from e
+            log_event(self.ctx, "update", self.entity, id_, clean_detail(clean))
 
     def enroll_existing(self, student_id, class_id, school_year):
         self.ctx.session.require(self.write_perm)
@@ -239,7 +242,7 @@ class StudentService(CrudService):
                         row = dict(row)
                         if "tutor_name" not in row and "guardian_name" in row:
                             row["tutor_name"] = row["guardian_name"]
-                        cname = (row.pop("class", "") or "").strip().upper()
+                        cname = (row.pop("class", None) or row.pop("class_name", None) or "").strip().upper()
                         if cname:
                             if cname not in classes:
                                 raise ValidationError(f"Classe inconnue : {cname}")
@@ -251,6 +254,9 @@ class StudentService(CrudService):
                     if len(batch) >= 1000:
                         flush()
                 flush()
+                log_event(self.ctx, "import", self.entity, None,
+                          {"inserted": report.inserted, "duplicates": report.duplicates,
+                           "errors": len(report.errors), "school_year": self.school_year})
         return report
 
     def export_csv(self, path, search="") -> int:
@@ -263,7 +269,8 @@ class StudentService(CrudService):
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         n = 0
         with os.fdopen(fd, "w", newline="", encoding="utf-8-sig") as f:
-            os.fchmod(f.fileno(), 0o600)
+            if hasattr(os, "fchmod"):          # absent sous Windows (Python < 3.13)
+                os.fchmod(f.fileno(), 0o600)
             w = csv.writer(f)
             w.writerow(EXPORT_COLS)
             cur = self.db.conn.execute(sql, [*params, self.school_year])

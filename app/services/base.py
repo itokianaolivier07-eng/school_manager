@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from app import config
 from app.core.exceptions import DuplicateError, NotFoundError, ValidationError
+from app.services.audit import clean_detail, log_event
 
 
 @dataclass
@@ -75,6 +76,7 @@ class CrudService:
                 new_id = self.repo.insert(self.prepare(dict(clean)))
             except sqlite3.IntegrityError as e:
                 raise translate_integrity(e) from e
+            log_event(self.ctx, "create", self.entity, new_id, clean_detail(clean))
         return new_id
 
     def update(self, id_, data) -> None:
@@ -87,13 +89,17 @@ class CrudService:
                 raise translate_integrity(e) from e
             if not changed:
                 raise NotFoundError("Élément introuvable.")
+            log_event(self.ctx, "update", self.entity, id_, clean_detail(clean))
 
     def delete(self, id_) -> None:
         self.ctx.session.require(self.delete_perm)
         with self.db.transaction():
+            before = self.repo.get(id_)
             try:
                 changed = self.repo.delete(id_)
             except sqlite3.IntegrityError as e:
                 raise translate_integrity(e) from e
             if not changed:
                 raise NotFoundError("Élément introuvable.")
+            log_event(self.ctx, "delete", self.entity, id_,
+                      clean_detail(before) if before is not None else None)

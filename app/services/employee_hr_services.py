@@ -5,6 +5,7 @@ from app.core import validators as V
 from app.core.exceptions import NotFoundError, ValidationError
 from app.repositories.repos import (AttendanceRepository, SalaryDisbursementRepository,
                                     SalaryRepository)
+from app.services.audit import log_event
 from app.services.base import CrudService
 
 
@@ -156,6 +157,9 @@ class SalaryDisbursementService(CrudService):
                 "school_year": school_year, "hours": hours, "hourly_rate": hourly_rate,
                 "amount": amount, "created_by": user.id,
             })
+            log_event(self.ctx, "create", self.entity, payout_id,
+                      {"employee_id": employee_id, "title": title,
+                       "payout_date": payout_date, "amount": amount})
         return payout_id
 
 
