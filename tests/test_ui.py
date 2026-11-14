@@ -8,6 +8,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (QApplication, QComboBox, QDialogButtonBox, QDoubleSpinBox, QLineEdit,
                              QMessageBox, QTableWidget, QToolButton)
 
+from app.core import school
 from app.ui.forms import Field, FormDialog
 from app.ui.dialogs import LoginDialog
 from app.ui.fees_view import FeesView
@@ -32,10 +33,10 @@ def test_main_window_builds_all_authorized_pages(qapp):
     window = MainWindow(services, ctx)
 
     assert window.stack.count() == 9
-    labels = [window.nav.item(i).text() for i in range(window.nav.count())]
+    labels = [button.label_text for button in window.sidebar._buttons]
     assert labels[0] == "Tableau de bord"
     assert all(not any(ord(char) > 0xFFFF for char in label) for label in labels)
-    assert window.user_info.text() == "Admin — Administrateur"
+    assert window.user_info.text() == "Admin - Administrateur"
     assert window.user_info.alignment() == Qt.AlignmentFlag.AlignCenter
     assert window.menuWidget() is None
     toolbar_menus = [button for button in window.top_toolbar.findChildren(QToolButton) if button.text()]
@@ -43,6 +44,81 @@ def test_main_window_builds_all_authorized_pages(qapp):
     assert [action.text() for action in toolbar_menus[0].menu().actions()] == [
         "Changer le mot de passe…", "Se déconnecter"]
     window.close()
+
+
+def test_dashboard_tracks_monthly_profit_and_charges_page(qapp):
+    ctx, services = make_env()
+    start = school.current_school_year()[:4]
+    ctx.db.execute("INSERT INTO expenses (category, label, amount, expense_date) "
+                   "VALUES ('loyer', 'Loyer', 300000, ?)", (f"{start}-09-05",))
+
+    window = MainWindow(services, ctx)
+    dashboard = window.stack.widget(0)
+
+    assert dashboard.finance is not None
+    assert dashboard.detail.combo.count() == len(school.SCHOOL_MONTHS)
+    assert len(dashboard.profit_chart.values) == len(school.SCHOOL_MONTHS)
+    assert any(value < 0 for value in dashboard.profit_chart.values)
+    labels = [button.label_text for button in window.sidebar._buttons]
+    assert labels.index("Charges") == labels.index("Écolages") + 1
+    window.close()
+
+
+def test_mutations_refresh_related_views_and_annual_filters(qapp):
+    ctx, services = make_env()
+    window = MainWindow(services, ctx)
+    class_view = window.stack.widget(3)
+    year = "2024-2025"
+    class_id = services.classes.create({"name": "Classe ajoutée", "school_year": year})
+
+    class_view.notify_changed()
+
+    classes_filter = window.findChild(QComboBox, "classesSchoolYearFilter")
+    students_filter = window.findChild(QComboBox, "studentsSchoolYearFilter")
+    assert classes_filter.findText(year) >= 0
+    assert students_filter.findText(year) >= 0
+    assert class_view.model.rowCount() == 0
+
+    classes_filter.setCurrentText(year)
+    assert class_view.model.rowCount() == 1
+    students_filter.setCurrentText(year)
+    student_view = window.stack.widget(1)
+    assert student_view.model.rowCount() == 0
+    student_id = services.students.create(
+        {"first_name": "Aina", "last_name": "Rabe", "birth_date": "2010-05-12",
+         "class_id": class_id})
+    class_view.notify_changed()
+    assert student_view.model.rowCount() == 1
+    assert student_view.model.row_at(0)["id"] == student_id
+    window.close()
+
+
+def test_class_teacher_choices_follow_school_year_in_form(qapp):
+    ctx, services = make_env()
+    view = classes_view(services, ctx)
+    year_one, year_two = "2030-2031", "2031-2032"
+    employee_one = services.teachers.create({
+        "employee_no": "ENS2030", "first_name": "Aina", "last_name": "Rabe",
+        "gender": "F", "birth_date": "1985-01-01", "hire_date": "2020-09-01",
+    })
+    services.teachers.assign_year(employee_one, year_one)
+    employee_two = services.teachers.create({
+        "employee_no": "ENS2031", "first_name": "Miora", "last_name": "Rabe",
+        "gender": "F", "birth_date": "1986-01-01", "hire_date": "2020-09-01",
+    })
+    services.teachers.assign_year(employee_two, year_two)
+
+    dialog = view.dialog_factory("Classe", view.fields, {"school_year": year_one},
+                                view, readonly=False)
+    year_input = dialog.widgets["school_year"]
+    teacher_combo = dialog.widgets["main_teacher_id"]
+    assert teacher_combo.findData(employee_one) >= 0
+    assert teacher_combo.findData(employee_two) < 0
+
+    year_input.setText(year_two)
+    assert teacher_combo.findData(employee_one) < 0
+    assert teacher_combo.findData(employee_two) >= 0
+    dialog.close()
 
 
 def test_main_window_is_centered_on_primary_screen(qapp):
@@ -178,7 +254,7 @@ def test_class_screen_uses_employee_and_has_no_level(qapp):
     assert all(field.name != "level" for field in view.fields)
     employee = next(field for field in view.fields if field.name == "main_teacher_id")
     assert employee.label == "Employé"
-    assert employee.choices() == [("EMP001 — Rakoto Aina", employee_id)]
+    assert employee.choices() == [("EMP001 - Rakoto Aina", employee_id)]
     class_name = next(field for field in view.fields if field.name == "name")
     assert "Crèche" in class_name.placeholder and "CE1" in class_name.placeholder
 
@@ -225,6 +301,7 @@ def test_payment_history_dropdown_filters_by_class_and_school_year(qapp):
     for class_name, school_year in (
         ("Classe Filtre A", "2025-2026"), ("Classe Filtre B", "2026-2027")):
         class_id = services.classes.create({"name": class_name, "school_year": school_year})
+        services.students.select_school_year(school_year)
         student_id = services.students.create(
             {"first_name": class_name.replace(" ", ""), "last_name": "Rakoto",
              "birth_date": "2010-05-12", "class_id": class_id})
@@ -241,7 +318,8 @@ def test_payment_history_dropdown_filters_by_class_and_school_year(qapp):
     assert view.history.model.row_at(0)["class_name"] == "Classe Filtre A"
 
     view.history_year.setCurrentIndex(view.history_year.findData("2026-2027"))
-    assert view.history.model.rowCount() == 0
+    assert view.history_class.currentData() is None
+    assert view.history.model.rowCount() == 1
 
     view.history_class.setCurrentIndex(0)
     assert view.history.model.rowCount() == 1

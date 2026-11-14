@@ -1,5 +1,6 @@
 """Migrations versionnées (PRAGMA user_version)."""
 import logging
+import sqlite3
 
 from app.database.migration2 import MIGRATION_2
 from app.database.migration3 import MIGRATION_3
@@ -11,6 +12,9 @@ from app.database.migration8 import MIGRATION_8
 from app.database.migration9 import MIGRATION_9
 from app.database.migration10 import MIGRATION_10
 from app.database.migration11 import MIGRATION_11
+from app.database.migration12 import MIGRATION_12
+from app.database.migration13 import MIGRATION_13
+from app.database.migration14 import MIGRATION_14
 
 log = logging.getLogger(__name__)
 
@@ -92,27 +96,12 @@ CREATE TABLE grades (
 );
 CREATE INDEX idx_grades_subject_term ON grades(subject_id, term);
 
-CREATE TABLE audit_log (
-    id INTEGER PRIMARY KEY,
-    ts TEXT NOT NULL DEFAULT (datetime('now')),
-    user_id INTEGER,
-    username TEXT,
-    action TEXT NOT NULL,
-    entity TEXT,
-    entity_id INTEGER,
-    details TEXT
-);
-CREATE INDEX idx_audit_ts ON audit_log(ts);
--- Journal d'audit infalsifiable via l'application : ni modification ni suppression.
-CREATE TRIGGER trg_audit_no_update BEFORE UPDATE ON audit_log
-BEGIN SELECT RAISE(ABORT, 'audit_log est en lecture seule'); END;
-CREATE TRIGGER trg_audit_no_delete BEFORE DELETE ON audit_log
-BEGIN SELECT RAISE(ABORT, 'audit_log est en lecture seule'); END;
 """
 
 MIGRATIONS = [(1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3), (4, MIGRATION_4),
               (5, MIGRATION_5), (6, MIGRATION_6), (7, MIGRATION_7), (8, MIGRATION_8),
-              (9, MIGRATION_9), (10, MIGRATION_10), (11, MIGRATION_11)]
+              (9, MIGRATION_9), (10, MIGRATION_10), (11, MIGRATION_11),
+              (12, MIGRATION_12), (13, MIGRATION_13), (14, MIGRATION_14)]
 
 
 def migrate(db) -> None:
@@ -122,8 +111,28 @@ def migrate(db) -> None:
             continue
         log.info("Migration vers la version %s", version)
         try:
-            db.conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version={version};\nCOMMIT;")
+            if version == 12:
+                db.conn.execute("PRAGMA foreign_keys=OFF")
+                db.conn.execute("BEGIN")
+                statement = ""
+                for line in sql.splitlines():
+                    statement += line + "\n"
+                    if sqlite3.complete_statement(statement):
+                        db.conn.execute(statement)
+                        statement = ""
+                if statement.strip():
+                    raise RuntimeError(f"Migration {version} contient une instruction incomplète.")
+                violations = db.conn.execute("PRAGMA foreign_key_check").fetchall()
+                if violations:
+                    raise RuntimeError(f"Violations de clés étrangères après migration : {violations}")
+                db.conn.execute(f"PRAGMA user_version={version}")
+                db.conn.execute("COMMIT")
+            else:
+                db.conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version={version};\nCOMMIT;")
         except Exception:
             if db.conn.in_transaction:
                 db.conn.execute("ROLLBACK")
             raise
+        finally:
+            if version == 12:
+                db.conn.execute("PRAGMA foreign_keys=ON")

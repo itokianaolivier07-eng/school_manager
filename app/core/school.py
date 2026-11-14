@@ -4,6 +4,14 @@ from datetime import date
 SCHOOL_MONTHS = (9, 10, 11, 12, 1, 2, 3, 4, 5, 6)
 MONTH_NAMES = {1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin", 7: "Juillet",
                8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"}
+MONTH_ABBR = {1: "Jan", 2: "Fév", 3: "Mar", 4: "Avr", 5: "Mai", 6: "Juin", 7: "Juil", 8: "Août",
+              9: "Sep", 10: "Oct", 11: "Nov", 12: "Déc"}
+EXPENSE_CATEGORIES = {
+    "loyer": "Loyer",
+    "electricite": "Électricité",
+    "eau": "Eau",
+    "autre": "Autre charge",
+}
 METHODS = {"cash": "Espèces", "mobile_money": "Mobile Money", "bank": "Banque / virement"}
 KINDS = {"registration": "Inscription", "monthly": "Écolage"}
 FIXED_FEE_ITEMS = {
@@ -42,7 +50,7 @@ FEE_AMOUNT_FIELDS = {
 }
 MAX_AMOUNT = 10_000_000
 SCHOOL_LEVELS = (
-    "Crèche", "Garderie", "MS", "PS", "GS", "CP", "CE1", "CE2", "CM1", "CM2",
+    "Crèche", "Garderie", "PS", "MS", "GS", "CP", "CE1", "CE2", "CM1", "CM2",
     "6è", "5è", "4è", "3è",
 )
 LEVEL_AGE_RANGES = {
@@ -58,6 +66,18 @@ def current_school_year(today=None) -> str:
     today = today or date.today()
     start = today.year if today.month >= 9 else today.year - 1
     return f"{start}-{start + 1}"
+
+
+def school_year_months(school_year) -> list:
+    """Mois (année, mois) d'une année scolaire, de septembre à juin."""
+    start = int(str(school_year).split("-")[0])
+    return [(start, month) if month >= 9 else (start + 1, month) for month in SCHOOL_MONTHS]
+
+
+def school_year_bounds(school_year) -> tuple:
+    """Bornes ISO (début, fin) d'une année scolaire."""
+    start = int(str(school_year).split("-")[0])
+    return f"{start}-09-01", f"{start + 1}-06-30"
 
 
 def months_elapsed(today=None) -> int:

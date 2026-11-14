@@ -1,10 +1,12 @@
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtCore import QSignalBlocker
+from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QComboBox, QLabel
 
+from app.core import school
 from app.core.permissions import ROLE_LABELS
 from app.ui.crud_view import CrudView
-from app.ui.forms import Field
+from app.ui.forms import Field, FormDialog
 from app.ui.salaries_view import SalariesView
-from app.ui.utils import LABELS
+from app.ui.utils import LABELS, ask_confirmation
 
 GENDERS = lambda: [("Masculin", "M"), ("Féminin", "F")]
 STATUS = lambda: [(v, k) for k, v in LABELS["status"].items()]
@@ -13,7 +15,58 @@ ACTIVE = lambda: [("Actif", 1), ("Inactif", 0)]
 ATTENDANCE_STATUS = lambda: [(v, k) for k, v in LABELS["attendance_status"].items()]
 
 
-def students_view(sv, ctx):
+class _ClassDialog(FormDialog):
+    def __init__(self, title, fields, initial, parent, readonly=False, *, teachers, can_read_teachers):
+        self.teachers = teachers
+        self.can_read_teachers = can_read_teachers
+        self.initial_teacher_id = (initial or {}).get("main_teacher_id")
+        super().__init__(title, fields, initial, parent, readonly=readonly)
+        self.widgets["school_year"].textChanged.connect(self._sync_teachers)
+        self._sync_teachers()
+
+    def _sync_teachers(self):
+        combo = self.widgets["main_teacher_id"]
+        selected = combo.currentData()
+        if selected is None:
+            selected = self.initial_teacher_id
+        year = self.widgets["school_year"].text().strip()
+        options = self.teachers.options_for_year(year) if self.can_read_teachers and year else []
+        blocker = QSignalBlocker(combo)
+        combo.clear()
+        combo.addItem("- Aucun -", None)
+        for label, employee_id in options:
+            combo.addItem(label, employee_id)
+        index = combo.findData(selected)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        self.initial_teacher_id = None
+        del blocker
+
+
+def _sync_year_filter(combo, options, selected):
+    values = list(options)
+    if values == [combo.itemText(i) for i in range(combo.count())] and \
+            combo.currentText() == selected:
+        return selected
+    blocker = QSignalBlocker(combo)
+    combo.clear()
+    combo.addItems(values)
+    index = combo.findText(selected)
+    if index < 0 and combo.count():
+        index = 0
+    if index >= 0:
+        combo.setCurrentIndex(index)
+    result = combo.currentText()
+    del blocker
+    return result
+
+
+def students_view(sv, ctx, on_change=None):
+    years = QComboBox()
+    years.setObjectName("studentsSchoolYearFilter")
+    years.addItems(sv.students.school_year_options())
+    sv.students.select_school_year(years.currentText())
+    year_filter = QLabel("Année scolaire")
+
     columns = [("matricule", "Matricule"), ("last_name", "Nom"), ("first_name", "Prénom"),
                ("birth_date", "Naissance"), ("class_name", "Classe"), ("status", "Statut", LABELS["status"])]
     fields = [Field("matricule", "Matricule (auto si vide)", max_len=20),
@@ -32,7 +85,8 @@ def students_view(sv, ctx):
               Field("mother_profession", "Profession de la mère", max_len=100),
               Field("tuition_discount", "Remise d'écolage (%)", "number", maximum=100, decimals=0, step=1, default=0),
               Field("address", "Adresse", max_len=200),
-              Field("class_id", "Classe", "combo", choices=sv.classes.options),
+              Field("class_id", "Classe", "combo",
+                    choices=lambda: sv.classes.repo.options_for_year(sv.students.school_year)),
               Field("status", "Statut", "combo", required=True, choices=STATUS)]
 
     def import_csv(view):
@@ -41,7 +95,7 @@ def students_view(sv, ctx):
             r = sv.students.import_csv(path)
             detail = "\n".join(f"Ligne {n} : {m}" for n, m in r.errors[:10])
             QMessageBox.information(view, "Import terminé", f"{r.inserted} ajoutés, {r.duplicates} doublons, {len(r.errors)} erreurs.\n{detail}")
-            view.refresh()
+            view.notify_changed()
 
     def export_csv(view):
         path, _ = QFileDialog.getSaveFileName(view, "Exporter les élèves", "eleves.csv", "CSV (*.csv)")
@@ -49,11 +103,75 @@ def students_view(sv, ctx):
             n = sv.students.export_csv(path, view.search.text())
             QMessageBox.information(view, "Export", f"{n} ligne(s) exportée(s).")
 
-    return CrudView(sv.students, columns, fields, ctx, noun="élève", extra_actions=[
-        ("Importer CSV", import_csv, "students.import"), ("Exporter CSV", export_csv, "students.export")])
+    def enroll_selected(view):
+        student_id = view._row_id()
+        if student_id is None:
+            return
+        available_years = [y for y in sv.classes.school_year_options()
+                           if y != sv.students.school_year]
+        if not available_years:
+            QMessageBox.information(view, "Inscription", "Aucune autre année scolaire n'a de classe.")
+            return
+        year, ok = QInputDialog.getItem(view, "Nouvelle inscription", "Année scolaire :",
+                                        available_years, 0, False)
+        if not ok:
+            return
+        class_options = sv.classes.repo.options_for_year(year)
+        if not class_options:
+            QMessageBox.information(view, "Inscription", "Aucune classe n'existe pour cette année.")
+            return
+        labels = [label for label, _ in class_options]
+        label, ok = QInputDialog.getItem(view, "Nouvelle inscription", "Classe :",
+                                         labels, 0, False)
+        if not ok:
+            return
+        sv.students.enroll_existing(
+            student_id, dict(class_options)[label], year)
+        view.notify_changed()
+
+    def unenroll_selected(view):
+        student_id = view._row_id()
+        if student_id is None:
+            return
+        if ask_confirmation(view, "Confirmation",
+                            f"Retirer cet élève de l'année {sv.students.school_year} ?"):
+            sv.students.unenroll(student_id, sv.students.school_year)
+            view.notify_changed()
+
+    view = CrudView(sv.students, columns, fields, ctx, noun="élève", top_controls=[
+        year_filter, years], extra_actions=[
+        ("Réinscrire l'élève sélectionné", enroll_selected, "students.write"),
+        ("Retirer de cette année", unenroll_selected, "students.write"),
+        ("Importer CSV", import_csv, "students.import"),
+        ("Exporter CSV", export_csv, "students.export")], on_change=on_change)
+
+    def refresh_filters():
+        selected = _sync_year_filter(
+            years, sv.students.school_year_options(), sv.students.school_year)
+        if selected != sv.students.school_year:
+            view.page_no = 0
+        sv.students.select_school_year(selected)
+
+    def select_year(value):
+        sv.students.select_school_year(value)
+        view.page_no = 0
+        if on_change:
+            on_change()
+        else:
+            view.page_no = 0
+            view.refresh()
+
+    view.refresh_filters = refresh_filters
+    years.currentTextChanged.connect(select_year)
+    return view
 
 
-def teachers_view(sv, ctx):
+def teachers_view(sv, ctx, on_change=None):
+    years = QComboBox()
+    years.setObjectName("teachersSchoolYearFilter")
+    years.addItems(sv.teachers.school_year_options())
+    sv.teachers.select_school_year(years.currentText())
+
     columns = [("employee_no", "Numéro"), ("last_name", "Nom"), ("first_name", "Prénoms"),
                ("gender", "Genre", LABELS["gender"]), ("birth_date", "Date de naissance"),
                ("birth_place", "Lieu de naissance"), ("phone", "Téléphone"), ("address", "Adresse"),
@@ -68,38 +186,135 @@ def teachers_view(sv, ctx):
               Field("address", "Adresse", max_len=200),
               Field("position", "Poste", max_len=80),
               Field("hire_date", "Date d'embauche", "date", required=True)]
-    return CrudView(sv.teachers, columns, fields, ctx, noun="employé")
+    def assign_selected(view):
+        employee_id = view._row_id()
+        if employee_id is None:
+            return
+        available_years = [y for y in sv.classes.school_year_options()
+                           if y != sv.teachers.school_year]
+        if not available_years:
+            QMessageBox.information(view, "Affectation", "Aucune autre année scolaire n'existe.")
+            return
+        year, ok = QInputDialog.getItem(view, "Affecter l'employé", "Année scolaire :",
+                                        available_years, 0, False)
+        if ok:
+            sv.teachers.assign_year(employee_id, year)
+            view.notify_changed()
+
+    def remove_selected_assignment(view):
+        employee_id = view._row_id()
+        if employee_id is None:
+            return
+        if ask_confirmation(view, "Confirmation",
+                            f"Retirer cet employé de l'année {sv.teachers.school_year} ?"):
+            sv.teachers.remove_year(employee_id, sv.teachers.school_year)
+            view.notify_changed()
+
+    view = CrudView(sv.teachers, columns, fields, ctx, noun="employé",
+                    top_controls=[QLabel("Année scolaire"), years],
+                    extra_actions=[
+                        ("Affecter à une autre année", assign_selected, "teachers.write"),
+                        ("Retirer de cette année", remove_selected_assignment, "teachers.write")],
+                    on_change=on_change)
+
+    def refresh_filters():
+        selected = _sync_year_filter(
+            years, sv.teachers.school_year_options(), sv.teachers.school_year)
+        if selected != sv.teachers.school_year:
+            view.page_no = 0
+        sv.teachers.select_school_year(selected)
+
+    def select_year(value):
+        sv.teachers.select_school_year(value)
+        view.page_no = 0
+        if on_change:
+            on_change()
+        else:
+            view.page_no = 0
+            view.refresh()
+
+    view.refresh_filters = refresh_filters
+    years.currentTextChanged.connect(select_year)
+    return view
 
 
-def classes_view(sv, ctx):
+def classes_view(sv, ctx, on_change=None):
+    years = QComboBox()
+    years.setObjectName("classesSchoolYearFilter")
+    years.addItems(sv.classes.school_year_options())
+    sv.classes.select_school_year(years.currentText())
     columns = [("name", "Classe"), ("school_year", "Année"), ("student_count", "Élèves"),
                ("capacity", "Effectif max."), ("employee", "Employé")]
     fields = [Field("name", "Classe / niveau", required=True, max_len=40,
-                    placeholder="Crèche, Garderie, MS, PS, GS, CP, CE1… (ex. CE1-A)"),
+                    placeholder="Crèche, Garderie, PS, MS, GS, CP, CE1…"),
               Field("school_year", "Année scolaire (AAAA-AAAA)", required=True, max_len=9),
               Field("capacity", "Effectif maximal", "number", minimum=1, maximum=80, decimals=0, step=1, default=45),
-              Field("main_teacher_id", "Employé", "combo", choices=sv.teachers.options if ctx.session.can("teachers.read") else None)]
-    return CrudView(sv.classes, columns, fields, ctx, noun="classe")
+              Field("main_teacher_id", "Employé", "combo",
+                    choices=(lambda: sv.teachers.options_for_year(sv.classes.school_year)
+                             if ctx.session.can("teachers.read") else []))]
+    view = CrudView(sv.classes, columns, fields, ctx, noun="classe",
+                    top_controls=[QLabel("Année scolaire"), years],
+                    dialog_factory=lambda title, dialog_fields, initial, parent, readonly=False:
+                        _ClassDialog(title, dialog_fields, initial, parent, readonly=readonly,
+                                     teachers=sv.teachers,
+                                     can_read_teachers=ctx.session.can("teachers.read")),
+                    on_change=on_change)
+
+    def refresh_filters():
+        selected = _sync_year_filter(
+            years, sv.classes.school_year_options(), sv.classes.school_year)
+        if selected != sv.classes.school_year:
+            view.page_no = 0
+        sv.classes.select_school_year(selected)
+
+    def select_year(value):
+        sv.classes.select_school_year(value)
+        view.page_no = 0
+        if on_change:
+            on_change()
+        else:
+            view.page_no = 0
+            view.refresh()
+
+    view.refresh_filters = refresh_filters
+    years.currentTextChanged.connect(select_year)
+    return view
 
 
-def attendance_view(sv, ctx):
+def attendance_view(sv, ctx, on_change=None):
     columns = [("attendance_date", "Date"), ("employee_label", "Employé"),
                ("status", "Statut", LABELS["attendance_status"]),
                ("arrival_time", "Arrivée"), ("departure_time", "Départ"), ("comment", "Commentaire")]
-    fields = [Field("employee_id", "Employé", "combo", required=True, choices=sv.teachers.options if ctx.session.can("teachers.read") else None),
+    fields = [    Field("employee_id", "Employé", "combo", required=True,
+          choices=(lambda: sv.teachers.options_for_year(sv.teachers.school_year)
+                   if ctx.session.can("teachers.read") else [])),
               Field("attendance_date", "Date de pointage", "date", required=True),
               Field("status", "Statut", "combo", required=True, choices=ATTENDANCE_STATUS),
-              Field("arrival_time", "Heure d'arrivée (HH:MM)", max_len=8),
-              Field("departure_time", "Heure de départ (HH:MM)", max_len=8),
+              Field("arrival_time", "Heure d'arrivée (HH:MM)", max_len=5),
+              Field("departure_time", "Heure de départ (HH:MM)", max_len=5),
               Field("comment", "Commentaire", max_len=200)]
-    return CrudView(sv.attendance, columns, fields, ctx, noun="pointage")
+    return CrudView(sv.attendance, columns, fields, ctx, noun="pointage", on_change=on_change)
 
 
-def salaries_view(sv, ctx):
-    return SalariesView(sv, ctx)
+def salaries_view(sv, ctx, on_change=None):
+    return SalariesView(sv, ctx, on_change)
 
 
-def users_view(sv, ctx):
+def expenses_view(sv, ctx, on_change=None):
+    columns = [("expense_date", "Date"),
+               ("category", "Catégorie", school.EXPENSE_CATEGORIES),
+               ("label", "Libellé"), ("amount", "Montant (Ar)"),
+               ("created_by_name", "Saisi par")]
+    fields = [Field("category", "Catégorie", "combo", required=True,
+                    choices=lambda: [(v, k) for k, v in school.EXPENSE_CATEGORIES.items()]),
+              Field("label", "Libellé (fournisseur, référence…)", max_len=120),
+              Field("amount", "Montant (Ar)", "number", required=True, minimum=1,
+                    maximum=school.MAX_AMOUNT, decimals=0, step=1000),
+              Field("expense_date", "Date", "date", required=True)]
+    return CrudView(sv.expenses, columns, fields, ctx, noun="charge", on_change=on_change)
+
+
+def users_view(sv, ctx, on_change=None):
     columns = [("username", "Identifiant"), ("full_name", "Nom"), ("role", "Rôle", LABELS["role"]),
                ("is_active", "Statut", LABELS["is_active"])]
     fields = [Field("username", "Identifiant", required=True, max_len=50),
@@ -107,10 +322,4 @@ def users_view(sv, ctx):
               Field("role", "Rôle", "combo", required=True, choices=ROLES),
               Field("is_active", "Statut", "combo", required=True, choices=ACTIVE),
               Field("password", "Mot de passe", "password")]
-    return CrudView(sv.users, columns, fields, ctx, noun="utilisateur")
-
-
-def audit_view(sv, ctx):
-    columns = [("ts", "Date (UTC)"), ("username", "Utilisateur"), ("action", "Action"),
-               ("entity", "Entité"), ("entity_id", "ID"), ("details", "Détails")]
-    return CrudView(sv.audit, columns, [], ctx, noun="événement", read_only=True)
+    return CrudView(sv.users, columns, fields, ctx, noun="utilisateur", on_change=on_change)

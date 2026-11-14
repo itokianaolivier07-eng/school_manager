@@ -1,7 +1,7 @@
 """Écolages : encaissement, reçus PDF, impayés, historique et tarifs."""
 import html
 
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QSignalBlocker, QTimer, Qt
 from PyQt6.QtGui import QBrush, QColor, QPageSize, QPdfWriter, QTextDocument
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QInputDialog,
                              QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
@@ -16,6 +16,21 @@ from app.ui.toast import show_toast
 from app.ui.utils import LABELS, ask_confirmation, handle_error
 
 STATUS_COLORS = {"Payé": "#dcfce7", "Partiel": "#fef3c7", "Impayé": "#fee2e2", "Gratuit": "#f1f5f9"}
+
+
+def _replace_combo_items(combo, items, selected):
+    blocker = QSignalBlocker(combo)
+    combo.clear()
+    for label, value in items:
+        combo.addItem(label, value)
+    index = combo.findData(selected)
+    if index < 0 and combo.count():
+        index = 0
+    if index >= 0:
+        combo.setCurrentIndex(index)
+    value = combo.currentData()
+    del blocker
+    return value
 
 
 def _item(text):
@@ -35,9 +50,9 @@ def save_receipt_pdf(parent, services, payment_id):
     cancelled = "<p style='color:#b91c1c'><b>PAIEMENT ANNULÉ</b></p>" if d["cancelled"] else ""
     doc = QTextDocument()
     doc.setHtml(f"""
-    <h2 style='color:#312e81'>REÇU DE PAIEMENT</h2><p>N° <b>{esc(d['receipt_no'])}</b> — {esc(d['paid_at'])}</p>{cancelled}
+    <h2 style='color:#312e81'>REÇU DE PAIEMENT</h2><p>N° <b>{esc(d['receipt_no'])}</b> - {esc(d['paid_at'])}</p>{cancelled}
     <hr><p><b>Élève :</b> {esc(d['last_name'])} {esc(d['first_name'])} ({esc(d['matricule'])})<br>
-    <b>Classe :</b> {esc(d['class_name'] or '-')} — <b>Année scolaire :</b> {esc(d['school_year'])}</p>
+    <b>Classe :</b> {esc(d['class_name'] or '-')} - <b>Année scolaire :</b> {esc(d['school_year'])}</p>
     <p><b>Objet :</b> {esc(what)}<br><b>Mode :</b> {esc(school.METHODS[d['method']])}
     {('<br><b>Référence :</b> ' + esc(d['reference'])) if d['reference'] else ''}</p>
     <h3>Montant : {school.fmt_ar(d['amount'])}</h3>
@@ -51,9 +66,10 @@ def save_receipt_pdf(parent, services, payment_id):
 class CollectTab(QWidget):
     """Recherche d'un élève -> situation mois par mois -> encaissement."""
 
-    def __init__(self, services, ctx):
+    def __init__(self, services, ctx, on_change=None):
         super().__init__()
         self.sv, self.ctx = services, ctx
+        self.on_change = on_change
         self.student_id, self.rows = None, []
         self.search = QLineEdit()
         self.search.setPlaceholderText("Rechercher un élève (nom, prénom ou matricule)…")
@@ -99,16 +115,33 @@ class CollectTab(QWidget):
         self.results.clear()
         text = self.search.text().strip()
         if not text:
+            self.student_id = None
+            self.table.setRowCount(0)
+            self.header.setText("Sélectionnez un élève.")
+            self.totals.setText("")
             return
         try:
             page = self.sv.students.page(search=text, page=0, size=15)
         except Exception as e:
+            self.student_id = None
+            self.rows = []
+            self.table.setRowCount(0)
+            self.header.setText("Sélectionnez un élève.")
+            self.totals.setText("")
             return handle_error(self, e)
+        student_ids = set()
         for r in page.rows:
-            it = QListWidgetItem(f"{r['last_name']} {r['first_name']} — {r['matricule']} — "
+            student_ids.add(r["id"])
+            it = QListWidgetItem(f"{r['last_name']} {r['first_name']} - {r['matricule']} - "
                                  f"{r['class_name'] or 'sans classe'}")
             it.setData(Qt.ItemDataRole.UserRole, r["id"])
             self.results.addItem(it)
+        if self.student_id not in student_ids:
+            self.student_id = None
+            self.rows = []
+            self.table.setRowCount(0)
+            self.header.setText("Sélectionnez un élève.")
+            self.totals.setText("")
 
     def _pick(self, item):
         self.student_id = item.data(Qt.ItemDataRole.UserRole)
@@ -118,15 +151,16 @@ class CollectTab(QWidget):
         if self.student_id is None:
             return
         try:
-            st = self.sv.payments.statement(self.student_id)
+            st = self.sv.payments.statement(
+                self.student_id, self.sv.students.school_year)
         except Exception as e:
             self.table.setRowCount(0)
-            self.header.setText("—")
+            self.header.setText("-")
             self.totals.setText("")
             return handle_error(self, e)
         s = st["student"]
-        remise = f" — remise {s['tuition_discount']} %" if s["tuition_discount"] else ""
-        self.header.setText(f"<b>{s['last_name']} {s['first_name']}</b> — {s['class_name']} — {s['school_year']}{remise}")
+        remise = f" - remise {s['tuition_discount']} %" if s["tuition_discount"] else ""
+        self.header.setText(f"<b>{s['last_name']} {s['first_name']}</b> - {s['class_name']} - {s['school_year']}{remise}")
         self.rows = st["rows"]
         self.table.setRowCount(len(self.rows))
         for i, r in enumerate(self.rows):
@@ -137,8 +171,8 @@ class CollectTab(QWidget):
                 it.setBackground(QBrush(QColor(STATUS_COLORS[r["status"]])))
                 it.setForeground(QBrush(QColor("#1e293b")))
                 self.table.setItem(i, j, it)
-        self.totals.setText(f"Total dû : <b>{school.fmt_ar(st['total_due'])}</b> — payé : "
-                            f"<b>{school.fmt_ar(st['total_paid'])}</b> — reste : "
+        self.totals.setText(f"Total dû : <b>{school.fmt_ar(st['total_due'])}</b> - payé : "
+                            f"<b>{school.fmt_ar(st['total_paid'])}</b> - reste : "
                             f"<b>{school.fmt_ar(st['total_due'] - st['total_paid'])}</b>")
 
     def collect(self):
@@ -161,14 +195,17 @@ class CollectTab(QWidget):
                 return
             initial = dlg.values()
             try:
-                pid, receipt = self.sv.payments.record(self.student_id, initial)
+                pid, receipt = self.sv.payments.record(
+                    self.student_id, initial, self.sv.students.school_year)
                 break
             except AppError as e:
                 handle_error(self, e)
             except Exception as e:
                 return handle_error(self, e)
-        show_toast(self, f"Paiement enregistré — reçu {receipt}")
+        show_toast(self, f"Paiement enregistré - reçu {receipt}")
         self.load()
+        if self.on_change is not None:
+            self.on_change()
         if ask_confirmation(self, "Reçu", "Enregistrer le reçu en PDF ?"):
             try:
                 save_receipt_pdf(self, self.sv, pid)
@@ -176,6 +213,8 @@ class CollectTab(QWidget):
                 handle_error(self, e)
 
     def refresh(self):
+        if self.search.text().strip():
+            self._search()
         self.load()
 
 
@@ -195,7 +234,7 @@ class ArrearsTab(QWidget):
         self.class_cb.addItem("Toutes les classes", None)
         for school_class in classes:
             self.class_cb.addItem(
-                f"{school_class['name']} — {school_class['school_year']}", school_class["id"])
+                f"{school_class['name']} - {school_class['school_year']}", school_class["id"])
         self.month_cb = QComboBox()
         self.month_cb.setObjectName("arrearsMonthFilter")
         self.month_cb.addItem("Tous les mois échus", None)
@@ -231,6 +270,9 @@ class ArrearsTab(QWidget):
         self.page = 0
         self.page_count = 1
         self.filters = None
+        self.year_cb.currentIndexChanged.connect(self._year_changed)
+        self.class_cb.currentIndexChanged.connect(self._filters_changed)
+        self.month_cb.currentIndexChanged.connect(self._filters_changed)
         self.previous_btn = QPushButton("Précédent")
         self.previous_btn.setObjectName("arrearsPreviousPage")
         self.previous_btn.setEnabled(False)
@@ -259,6 +301,52 @@ class ArrearsTab(QWidget):
         self.page = 0
         self._load_page()
 
+    def _year_changed(self):
+        self._refresh_class_filter()
+        self._filters_changed()
+
+    def _filters_changed(self):
+        if self.filters is not None:
+            self.compute()
+
+    def _refresh_class_filter(self):
+        selected = self.class_cb.currentData()
+        _years, classes = self.sv.payments.arrears_filter_options(
+            self.year_cb.currentData())
+        items = [("Toutes les classes", None)] + [
+            (f"{item['name']} - {item['school_year']}", item["id"])
+            for item in classes]
+        self._set_class_filter(items, selected)
+
+    def _set_class_filter(self, items, selected):
+        _replace_combo_items(self.class_cb, items, selected)
+
+    def refresh_filters(self):
+        selected_year = self.year_cb.currentData()
+        years, _classes = self.sv.payments.arrears_filter_options()
+        year_items = [("Toutes les années", None)] + [(year, year) for year in years]
+        self._selected_year = _replace_combo_items(
+            self.year_cb, year_items, selected_year)
+        selected_class = self.class_cb.currentData()
+        _years, classes = self.sv.payments.arrears_filter_options(self._selected_year)
+        class_items = [("Toutes les classes", None)] + [
+            (f"{item['name']} - {item['school_year']}", item["id"])
+            for item in classes]
+        _replace_combo_items(self.class_cb, class_items, selected_class)
+        if self.filters is not None:
+            updated = {
+                "class_id": self.class_cb.currentData(),
+                "school_year": self.year_cb.currentData(),
+                "month": self.month_cb.currentData(),
+            }
+            if updated != self.filters:
+                self.page = 0
+                self.filters = updated
+
+    def refresh(self):
+        if self.filters is not None:
+            self._load_page()
+
     def _load_page(self):
         if self.filters is None:
             return
@@ -275,14 +363,14 @@ class ArrearsTab(QWidget):
             values = (
                 r["matricule"], r["last_name"], r["first_name"], LABELS["gender"].get(r["gender"], ""),
                 r["class_name"], r["school_year"], r["fee_label"],
-                school.MONTH_NAMES.get(r["month"], "") if r["month"] else "—",
+                school.MONTH_NAMES.get(r["month"], "") if r["month"] else "-",
                 school.fmt_ar(r["due"]), school.fmt_ar(r["paid"]), school.fmt_ar(r["balance"]),
             )
             for j, value in enumerate(values):
                 v = value
                 self.table.setItem(i, j, _item(v))
         self.total.setText(
-            f"{result['students']} élève(s) — {result['total']} poste(s) impayé(s) — total restant : "
+            f"{result['students']} élève(s) - {result['total']} poste(s) impayé(s) - total restant : "
             f"<b>{school.fmt_ar(result['balance'])}</b>")
         self.page_label.setText(f"Page {self.page + 1} / {self.page_count}")
         self.previous_btn.setEnabled(self.page > 0)
@@ -313,10 +401,12 @@ class ArrearsTab(QWidget):
 
 
 class FeesView(QWidget):
-    def __init__(self, services, ctx):
+    def __init__(self, services, ctx, on_change=None):
         super().__init__()
+        self.sv = services
+        self.on_change = on_change
         self.tabs = QTabWidget()
-        self.collect = CollectTab(services, ctx)
+        self.collect = CollectTab(services, ctx, on_change)
         self.arrears = ArrearsTab(services, ctx)
         self.tabs.addTab(self.collect, "Encaissement")
         self.tabs.addTab(self.arrears, "Impayés")
@@ -347,7 +437,7 @@ class FeesView(QWidget):
             if ok:
                 services.payments.cancel(row["id"], reason)
                 show_toast(view, "Paiement annulé", "info")
-                view.refresh()
+                view.notify_changed()
 
         years, classes = services.payments.history_filter_options()
         self.history_year = QComboBox()
@@ -359,7 +449,8 @@ class FeesView(QWidget):
         self.history_class.setObjectName("historyClassFilter")
         self.history_class.addItem("Toutes les classes", None)
         for school_class in classes:
-            self.history_class.addItem(school_class["name"], school_class["id"])
+            self.history_class.addItem(
+                f"{school_class['name']} - {school_class['school_year']}", school_class["id"])
         filters = QHBoxLayout()
         filters.addWidget(QLabel("Année scolaire"))
         filters.addWidget(self.history_year)
@@ -372,6 +463,7 @@ class FeesView(QWidget):
                                 extra_actions=[("Reçu PDF", receipt, "payments.read"),
                                                ("Annuler le paiement", cancel, "payments.cancel")],
                                 show_row_actions=False,
+                                on_change=on_change,
                                 page_loader=lambda search, sort, desc, page: services.payments.history_page(
                                     search, sort, desc, page, school_year=self.history_year.currentData(),
                                     class_id=self.history_class.currentData()))
@@ -403,7 +495,8 @@ class FeesView(QWidget):
                             required=True, maximum=school.MAX_AMOUNT, decimals=0, step=1000)]
             fields.extend(Field(key, f"{label} (Ar)", "number", maximum=school.MAX_AMOUNT,
                                 decimals=0, step=1000, default=0) for key, label in amount_fields)
-            self.fees = CrudView(services.fees, cols, fields, ctx, noun="tarif")
+            self.fees = CrudView(services.fees, cols, fields, ctx, noun="tarif",
+                                 on_change=on_change)
             self.tabs.addTab(self.fees, "Tarifs par classe")
         self.tabs.currentChanged.connect(lambda _i: self._refresh_tab())
         lay = QVBoxLayout(self)
@@ -417,8 +510,33 @@ class FeesView(QWidget):
             w.refresh()
 
     def _history_filter_changed(self):
+        selected = self.history_class.currentData()
+        _years, classes = self.sv.payments.history_filter_options(
+            self.history_year.currentData())
+        items = [("Toutes les classes", None)] + [
+            (f"{item['name']} - {item['school_year']}", item["id"])
+            for item in classes]
+        _replace_combo_items(self.history_class, items, selected)
         self.history.page_no = 0
         self.history.refresh()
 
+    def refresh_filters(self):
+        selected_year = self.history_year.currentData()
+        years, _classes = self.sv.payments.history_filter_options()
+        year_items = [("Toutes les années", None)] + [(year, year) for year in years]
+        _replace_combo_items(self.history_year, year_items, selected_year)
+        selected_class = self.history_class.currentData()
+        _years, classes = self.sv.payments.history_filter_options(
+            self.history_year.currentData())
+        class_items = [("Toutes les classes", None)] + [
+            (f"{item['name']} - {item['school_year']}", item["id"])
+            for item in classes]
+        _replace_combo_items(self.history_class, class_items, selected_class)
+        self.arrears.refresh_filters()
+
     def refresh(self):
-        self._refresh_tab()
+        self.collect.refresh()
+        self.arrears.refresh()
+        self.history.refresh()
+        if hasattr(self, "fees"):
+            self.fees.refresh()

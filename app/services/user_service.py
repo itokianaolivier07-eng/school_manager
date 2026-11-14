@@ -1,6 +1,7 @@
 from app.core import security
 from app.core import validators as V
 from app.core.exceptions import ValidationError
+from app.core.session import CurrentUser
 from app.repositories.repos import UserRepository
 from app.services.base import CrudService
 
@@ -44,6 +45,21 @@ class UserService(CrudService):
         clean = self.validate(data)
         self._keep_one_admin(id_, clean["role"], clean["is_active"])
         super().update(id_, data)
+        self._sync_own_session(id_)
+
+    def _sync_own_session(self, id_):
+        """Si l'utilisateur modifie son propre compte, la session reflète aussitôt
+        le nouveau rôle/état (sinon il conserverait ses droits jusqu'à reconnexion)."""
+        session = self.ctx.session
+        if session.user is None or session.user.id != id_:
+            return
+        row = self.repo.get(id_)
+        if row is None or not row["is_active"]:
+            session.logout()
+            return
+        session.login(CurrentUser(
+            row["id"], row["username"], row["full_name"], row["role"],
+            bool(row["must_change_password"])))
 
     def delete(self, id_):
         self.ctx.session.require(self.delete_perm)

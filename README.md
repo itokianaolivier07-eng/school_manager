@@ -13,8 +13,18 @@ Au premier lancement, l'application demande la création du compte administrateu
 
 Pour générer des données de démonstration dans une base vide :
 ```bash
-python -m scripts.seed_demo --students 30000
+python -m scripts.seed_demo
 ```
+Pour remplacer les données de démonstration déjà présentes (en conservant les comptes et le journal) :
+```bash
+python -m scripts.seed_demo --replace-demo
+```
+
+Le générateur crée une classe par niveau (Crèche, Garderie, PS, MS, GS, CP, CE1, CE2,
+CM1, CM2, 6è, 5è, 4è et 3è) et 20 élèves par classe par défaut. Le nombre d'élèves
+peut être changé avec `--students`, jusqu'à 45 élèves par classe.
+Les listes Élèves, Employés et Classes peuvent être filtrées par année scolaire.
+Les élèves peuvent être réinscrits à une autre année et les employés affectés à plusieurs années.
 
 Les tests se lancent avec `python -m pytest`.
 
@@ -22,16 +32,17 @@ Les tests se lancent avec `python -m pytest`.
 ```
 main.py                      point d'entrée, boucle connexion/déconnexion
 app/ui/                      PyQt6 : vues génériques (CrudView), formulaires, dialogues  -> services
-app/services/                logique métier : permissions, validation, transactions, audit -> repositories
+app/services/                logique métier : permissions, validation, transactions -> repositories
 app/repositories/            SQL paramétré uniquement                                      -> database
 app/database/                connexion SQLite durcie, migrations versionnées
 app/core/                    sécurité (scrypt), RBAC, session, validateurs, exceptions
 ```
 Fonctions : tableau de bord, élèves (import/export CSV), enseignants, classes, tarifs scolaires,
-encaissements, reçus PDF, annulations, impayés, utilisateurs, journal d'audit et sauvegardes.
-Les niveaux proposés pour la crèche, la garderie et l'école vont de Crèche, Garderie, MS, PS, GS, CP,
+encaissements, reçus PDF, annulations, impayés, utilisateurs et sauvegardes.
+Les niveaux proposés pour la crèche, la garderie et l'école vont de Crèche, Garderie, PS, MS, GS, CP,
 CE1, CE2, CM1, CM2 jusqu'à 6è, 5è, 4è et 3è. Les âges de validation couvrent ces parcours dès un an.
-Le générateur de démonstration crée des classes et âges d'élèves cohérents par niveau.
+Le générateur de démonstration crée des classes et âges d'élèves cohérents par niveau,
+avec des professions fictives pour les tuteurs et les parents.
 Les migrations ne remplacent ni ne suppriment les dossiers élèves ou les paiements déjà enregistrés.
 La section Salaires sépare les rémunérations de base et l'historique des sorties ; les postes de professeur
 peuvent être rémunérés à l'heure, avec calcul automatique selon les heures saisies.
@@ -54,7 +65,6 @@ La fiche élève peut contenir le tuteur et les noms du père et de la mère ; c
   Les valeurs utilisateur ne sont jamais interpolées dans le SQL. Un ORM n'est pas une protection en soi :
   le projet conserve les paramètres SQLite liés et les listes blanches pour éviter une migration de persistance
   risquée sans gain de sécurité démontré.
-- Journal d'audit en ajout seul (triggers qui interdisent UPDATE/DELETE) ; aucun mot de passe journalisé.
 - Fichiers de données en 0600 / dossiers 0700, `secure_delete`, `trusted_schema=OFF`, export CSV protégé contre l'injection de formules, import limité à 25 Mo.
 - Sauvegarde à chaud avec contrôle d'intégrité et rotation.
 - Les paiements enregistrés sont conservés ; une erreur se traite par une annulation motivée.

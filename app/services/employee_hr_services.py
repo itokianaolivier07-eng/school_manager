@@ -20,8 +20,8 @@ class AttendanceService(CrudService):
 
     def validate(self, data):
         status = V.choice(data, "status", "Statut", ("present", "absent", "late"))
-        arrival = V.text(data, "arrival_time", "Heure d'arrivée", required=False, max_len=8)
-        departure = V.text(data, "departure_time", "Heure de départ", required=False, max_len=8)
+        arrival = V.time_hhmm(data, "arrival_time", "Heure d'arrivée")
+        departure = V.time_hhmm(data, "departure_time", "Heure de départ")
         if status == "absent":
             arrival = departure = None
         else:
@@ -30,7 +30,7 @@ class AttendanceService(CrudService):
             if arrival >= departure:
                 raise ValidationError("L'heure d'arrivée doit être antérieure à l'heure de départ.")
         return {
-            "employee_id": V.integer(data, "employee_id", "Employé", minimum=1),
+            "employee_id": V.integer(data, "employee_id", "Employé", required=True, minimum=1),
             "attendance_date": V.date_iso(data, "attendance_date", "Date de pointage"),
             "status": status,
             "arrival_time": arrival,
@@ -156,7 +156,6 @@ class SalaryDisbursementService(CrudService):
                 "school_year": school_year, "hours": hours, "hourly_rate": hourly_rate,
                 "amount": amount, "created_by": user.id,
             })
-            self.log("create", payout_id, f"{title} — {amount} Ar — {school_year}")
         return payout_id
 
 

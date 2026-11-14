@@ -84,7 +84,7 @@ class FormDialog(QDialog):
             return w
         w = QComboBox()
         if not f.required:
-            w.addItem("— Aucun —", None)
+            w.addItem("- Aucun -", None)
         for label, val in (f.choices() if f.choices else []):
             w.addItem(label, val)
         for i in range(w.count()):

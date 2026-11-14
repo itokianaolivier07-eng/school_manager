@@ -1,4 +1,4 @@
-"""Écolages : tarifs par niveau, encaissements, reçus, annulations, impayés."""
+"""Écolages : tarifs par niveau, encaissements, reçus, annulations, impayés, charges."""
 import csv
 import heapq
 import os
@@ -8,7 +8,8 @@ from app import config
 from app.core import school
 from app.core import validators as V
 from app.core.exceptions import NotFoundError, ValidationError
-from app.repositories.finance_repos import PaymentRepository, TuitionFeeRepository
+from app.repositories.finance_repos import (ExpenseRepository, PaymentRepository,
+                                            TuitionFeeRepository)
 from app.services.base import CrudService, Page
 from app.services.student_service import csv_safe
 
@@ -37,7 +38,7 @@ class FeeService(CrudService):
     def class_options(self):
         self.ctx.session.require(self.read_perm)
         return [(r["label"], r["id"]) for r in self.db.all(
-            "SELECT id, name || ' — ' || school_year AS label FROM classes ORDER BY name")]
+            "SELECT id, name || ' - ' || school_year AS label FROM classes ORDER BY name")]
 
 
 class PaymentService(CrudService):
@@ -47,14 +48,23 @@ class PaymentService(CrudService):
     read_perm = "payments.read"
     default_desc = True
 
-    def history_filter_options(self):
+    def history_filter_options(self, school_year=None):
         self.ctx.session.require(self.read_perm)
+        if school_year is not None:
+            school_year = V.school_year({"school_year": school_year}, "school_year")
         years = [r["school_year"] for r in self.db.all(
             "SELECT DISTINCT school_year FROM payments ORDER BY school_year DESC")]
+        params = ()
+        year_filter = ""
+        if school_year is not None:
+            year_filter = "AND p.school_year = ? "
+            params = (school_year,)
         classes = [dict(r) for r in self.db.all(
-            "SELECT DISTINCT c.id, c.name FROM payments p "
-            "JOIN students s ON s.id = p.student_id JOIN classes c ON c.id = s.class_id "
-            "ORDER BY c.name COLLATE NOCASE")]
+            "SELECT DISTINCT c.id, c.name, c.school_year FROM payments p "
+            "JOIN students s ON s.id = p.student_id "
+            "LEFT JOIN student_enrollments e ON e.student_id=s.id AND e.school_year=p.school_year "
+            "JOIN classes c ON c.id = COALESCE(e.class_id,s.class_id) "
+            f"{year_filter}ORDER BY c.name COLLATE NOCASE, c.school_year DESC", params)]
         return years, classes
 
     def history_page(self, search="", sort=None, desc=None, page=0, size=None,
@@ -78,13 +88,24 @@ class PaymentService(CrudService):
         raise ValidationError("Un paiement ne se supprime pas : annulez-le.")
 
     # --- situation d'un élève ---
-    def statement(self, student_id):
+    def statement(self, student_id, school_year=None):
         self.ctx.session.require("payments.read")
+        if school_year is not None:
+            school_year = V.school_year({"school_year": school_year}, "school_year")
+        year_filter = ""
+        params = [int(student_id)]
+        if school_year is not None:
+            year_filter = "AND e.school_year = ? "
+            params.append(school_year)
         st = self.db.one(
-            "SELECT s.id, s.matricule, s.last_name, s.first_name, s.tuition_discount, s.class_id, "
-            "c.name AS class_name, c.school_year FROM students s "
-            "LEFT JOIN classes c ON c.id = s.class_id WHERE s.id = ?", (int(student_id),))
+            "SELECT s.id, s.matricule, s.last_name, s.first_name, s.tuition_discount, "
+            "e.class_id, c.name AS class_name, e.school_year FROM students s "
+            "JOIN student_enrollments e ON e.student_id=s.id "
+            "LEFT JOIN classes c ON c.id=e.class_id WHERE s.id=? "
+            f"{year_filter}ORDER BY e.school_year DESC LIMIT 1", params)
         if st is None:
+            if school_year is not None:
+                raise NotFoundError("Élève non inscrit pour cette année scolaire.")
             raise NotFoundError("Élève introuvable.")
         if st["class_id"] is None:
             raise ValidationError("Cet élève n'a pas de classe : impossible de calculer l'écolage.")
@@ -92,7 +113,7 @@ class PaymentService(CrudService):
                           (st["class_id"], st["school_year"]))
         if fee is None:
             raise ValidationError(f"Aucun tarif défini pour la classe {st['class_name']} "
-                                  "{st['school_year']} (onglet Tarifs).")
+                                  f"{st['school_year']} (onglet Tarifs).")
         paid = {r["fee_code"]: r["total"] for r in self.db.all(
             "SELECT fee_code, SUM(amount) AS total FROM payments WHERE student_id = ? "
             "AND school_year = ? AND cancelled = 0 GROUP BY fee_code",
@@ -113,8 +134,10 @@ class PaymentService(CrudService):
                 "total_paid": sum(r["paid"] for r in rows)}
 
     # --- encaissement ---
-    def record(self, student_id, data):
+    def record(self, student_id, data, school_year=None):
         user = self.ctx.session.require("payments.write")
+        if school_year is not None:
+            school_year = V.school_year({"school_year": school_year}, "school_year")
         if "fee_code" in data:
             fee_code = V.choice(data, "fee_code", "Poste", school.FEE_ITEM_CODES)
         else:
@@ -132,7 +155,7 @@ class PaymentService(CrudService):
         method = V.choice(data, "method", "Mode de paiement", tuple(school.METHODS))
         reference = V.text(data, "reference", "Référence", required=False, max_len=60)
         with self.db.transaction():
-            st = self.statement(student_id)
+            st = self.statement(student_id, school_year)
             row = next(r for r in st["rows"] if r["fee_code"] == fee_code)
             if row["due"] == 0:
                 raise ValidationError("Rien à payer pour cette période.")
@@ -146,7 +169,6 @@ class PaymentService(CrudService):
                                     "reference": reference, "received_by": user.id})
             receipt = f"R{year[:4]}-{pid:06d}"
             self.db.execute("UPDATE payments SET receipt_no = ? WHERE id = ?", (receipt, pid))
-            self.log("payment", pid, f"{receipt} élève={student_id} poste={fee_code} montant={amount}")
         return pid, receipt
 
     def cancel(self, payment_id, reason):
@@ -162,30 +184,40 @@ class PaymentService(CrudService):
                 raise ValidationError("Ce paiement est déjà annulé.")
             self.db.execute("UPDATE payments SET cancelled = 1, cancel_reason = ? WHERE id = ?",
                             (reason, int(payment_id)))
-            self.log("payment_cancel", int(payment_id), reason)
 
     def receipt_data(self, payment_id):
         self.ctx.session.require("payments.read")
         r = self.db.one(
             "SELECT p.*, s.matricule, s.last_name, s.first_name, c.name AS class_name, "
             "u.full_name AS cashier FROM payments p JOIN students s ON s.id = p.student_id "
-            "LEFT JOIN classes c ON c.id = s.class_id LEFT JOIN users u ON u.id = p.received_by "
+            "LEFT JOIN student_enrollments e ON e.student_id=s.id AND e.school_year=p.school_year "
+            "LEFT JOIN classes c ON c.id=COALESCE(e.class_id,s.class_id) "
+            "LEFT JOIN users u ON u.id = p.received_by "
             "WHERE p.id = ?", (int(payment_id),))
         if r is None:
             raise NotFoundError("Paiement introuvable.")
         return dict(r)
 
-    def arrears_filter_options(self):
+    def arrears_filter_options(self, school_year=None):
         self.ctx.session.require("payments.read")
+        if school_year is not None:
+            school_year = V.school_year({"school_year": school_year}, "school_year")
         years = [r["school_year"] for r in self.db.all(
             "SELECT DISTINCT school_year FROM class_tuition_fees ORDER BY school_year DESC")]
+        params = ()
+        year_filter = ""
+        if school_year is not None:
+            year_filter = "WHERE c.school_year = ? "
+            params = (school_year,)
         classes = [dict(r) for r in self.db.all(
             "SELECT c.id, c.name, c.school_year FROM classes c "
             "JOIN class_tuition_fees f ON f.class_id = c.id AND f.school_year = c.school_year "
-            "ORDER BY c.name COLLATE NOCASE")]
+            f"{year_filter}ORDER BY c.name COLLATE NOCASE", params)]
         return years, classes
 
     def _iter_arrears(self, class_id=None, school_year=None, month=None, today=None):
+        """Génère les impayés ligne à ligne : une école entière reste en mémoire
+        bornée (seule la page demandée est conservée), sans tout matérialiser."""
         self.ctx.session.require("payments.read")
         today = today or date.today()
         if class_id is not None:
@@ -199,6 +231,8 @@ class PaymentService(CrudService):
             if month not in school.SCHOOL_MONTHS:
                 raise ValidationError("Mois hors année scolaire (septembre à juin).")
 
+        # La classe/année d'un élève se lit dans ses inscriptions (une par année),
+        # pas dans students.class_id qui ne reflète que l'année courante.
         where, params = [], []
         if class_id is not None:
             where.append("c.id = ?")
@@ -213,15 +247,19 @@ class PaymentService(CrudService):
             "f.monthly_amount, f.droit_amount, f.photocopy_amount, f.uniform_amount, "
             "f.activity_1_amount, f.activity_2_amount, f.activity_3_amount, "
             "f.activity_4_amount, f.activity_5_amount "
-            "FROM students s JOIN classes c ON c.id = s.class_id "
+            "FROM students s JOIN student_enrollments e ON e.student_id = s.id "
+            "JOIN classes c ON c.id = e.class_id "
             "JOIN class_tuition_fees f ON f.class_id = c.id AND f.school_year = c.school_year "
             f"WHERE {' AND '.join(where)} "
             "ORDER BY c.school_year DESC, c.name COLLATE NOCASE, s.last_name COLLATE NOCASE, "
             "s.first_name COLLATE NOCASE, s.id")
         payments_where = ["p.cancelled = 0", "s.status = 'active'"]
         payment_params = []
+        enrollment_join = ""
         if class_id is not None:
-            payments_where.append("s.class_id = ?")
+            enrollment_join = ("LEFT JOIN student_enrollments e "
+                               "ON e.student_id = s.id AND e.school_year = p.school_year ")
+            payments_where.append("COALESCE(e.class_id, s.class_id) = ?")
             payment_params.append(class_id)
         if school_year is not None:
             payments_where.append("p.school_year = ?")
@@ -229,12 +267,12 @@ class PaymentService(CrudService):
         payments_sql = (
             "SELECT p.student_id, p.school_year, p.fee_code, SUM(p.amount) AS paid "
             "FROM payments p JOIN students s ON s.id = p.student_id "
+            f"{enrollment_join}"
             f"WHERE {' AND '.join(payments_where)} "
             "GROUP BY p.student_id, p.school_year, p.fee_code")
-        paid_by_student = {}
-        for payment in self.db.all(payments_sql, payment_params):
-            paid_by_student[(payment["student_id"], payment["school_year"], payment["fee_code"])] = (
-                payment["paid"])
+        paid_by_student = {
+            (payment["student_id"], payment["school_year"], payment["fee_code"]): payment["paid"]
+            for payment in self.db.all(payments_sql, payment_params)}
 
         current_start = int(school.current_school_year(today)[:4])
         elapsed = school.months_elapsed(today)
@@ -258,7 +296,7 @@ class PaymentService(CrudService):
                 "class_name": student["class_name"],
                 "school_year": student["school_year"],
                 "fee_code": fee_code,
-                "fee_label": (f"Écolage — {school.MONTH_NAMES[due_month]}" if due_month
+                "fee_label": (f"Écolage - {school.MONTH_NAMES[due_month]}" if due_month
                               else school.FEE_ITEM_LABELS[fee_code]),
                 "month": due_month,
                 "due": due,
@@ -309,8 +347,8 @@ class PaymentService(CrudService):
                 row["first_name"].casefold(), row["student_id"], row["fee_code"])
 
     def arrears(self, class_id=None, school_year=None, month=None, today=None):
-        rows = self._iter_arrears(class_id, school_year, month, today)
-        return sorted(rows, key=self._arrears_sort_key)
+        return sorted(self._iter_arrears(class_id, school_year, month, today),
+                      key=self._arrears_sort_key)
 
     def arrears_page(self, class_id=None, school_year=None, month=None, today=None,
                      page=0, size=config.PAGE_SIZE):
@@ -328,6 +366,8 @@ class PaymentService(CrudService):
                 unique_students.add(row["student_id"])
                 yield row
 
+        # On ne trie que le strict nécessaire (page courante incluse) plutôt que
+        # l'intégralité du rapport : reste dans l'ordre exact de arrears().
         limit = (page + 1) * size
         page_rows = heapq.nsmallest(limit, count_rows(), key=self._arrears_sort_key)
         pages = max(1, (total + size - 1) // size)
@@ -362,5 +402,25 @@ class PaymentService(CrudService):
                              else row[key])
                     for key, _ in columns
                 ])
-        self.log("export_arrears_csv", None, f"{len(rows)} lignes")
         return len(rows)
+
+
+class ExpenseService(CrudService):
+    """Charges d'exploitation saisies (loyer, électricité, eau, autres)."""
+    entity = "expenses"
+    repo_cls = ExpenseRepository
+    read_perm, write_perm, delete_perm = "expenses.read", "expenses.write", "expenses.delete"
+    default_desc = True
+
+    def validate(self, data):
+        return {
+            "category": V.choice(data, "category", "Catégorie", tuple(school.EXPENSE_CATEGORIES)),
+            "label": V.text(data, "label", "Libellé", required=False, max_len=120) or "",
+            "amount": V.integer(data, "amount", "Montant", required=True, minimum=1,
+                                maximum=school.MAX_AMOUNT),
+            "expense_date": V.date_iso(data, "expense_date", "Date"),
+        }
+
+    def prepare(self, clean):
+        clean["created_by"] = self.user.id
+        return clean

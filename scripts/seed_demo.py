@@ -1,4 +1,4 @@
-"""Usage : python -m scripts.seed_demo [--students 30000]"""
+"""Usage : python -m scripts.seed_demo [--students 280] [--replace-demo]"""
 import argparse
 import random
 import time
@@ -16,6 +16,8 @@ LAST = ["Rakoto", "Randria", "Rasoa", "Andrianina", "Rabe", "Ravelo", "Razafy", 
         "Dubois", "Moreau", "Laurent", "Simon", "Michel", "Lefèvre", "Garcia", "Roux", "Fontaine"]
 POSITIONS = ["Directrice", "Surveillante", "Comptable", "Secrétaire", "Professeur",
              "Éducatrice", "Éducateur", "Infirmière", "Gardien"]
+PROFESSIONS = ["Agriculteur", "Commerçant", "Enseignant", "Fonctionnaire", "Infirmier",
+               "Ménagère", "Médecin", "Ouvrier", "Artisan", "Sans emploi"]
 
 
 def _birth_date_for_level(level: str, today: date, rnd: random.Random) -> str:
@@ -32,9 +34,13 @@ def _birth_date_for_level(level: str, today: date, rnd: random.Random) -> str:
     return (oldest + timedelta(days=rnd.randrange((youngest - oldest).days + 1))).isoformat()
 
 
-def main(n_students: int) -> None:
+def main(n_students: int, replace_demo: bool = False) -> None:
     if n_students < 1:
         raise ValueError("Le nombre d'élèves doit être supérieur à zéro.")
+    max_students = len(school.SCHOOL_LEVELS) * school.DEFAULT_CAPACITY
+    if n_students > max_students:
+        raise ValueError(f"Le nombre d'élèves ne peut pas dépasser {max_students} "
+                         "avec une seule classe par niveau.")
     config.ensure_dirs()
     db = Database(config.DB_PATH)
     try:
@@ -42,8 +48,18 @@ def main(n_students: int) -> None:
         occupied = any(db.one(f"SELECT EXISTS(SELECT 1 FROM {table})")[0]
                        for table in ("students", "teachers", "classes"))
         if occupied:
-            print("La base contient déjà des données scolaires : abandon.")
-            return
+            if not replace_demo:
+                print("La base contient déjà des données scolaires : abandon.")
+                return
+            if db.one("SELECT EXISTS(SELECT 1 FROM payments)")[0]:
+                raise ValueError("La base contient des paiements; remplacement refusé pour préserver "
+                                 "les données comptables.")
+            with db.transaction():
+                db.execute("DELETE FROM class_tuition_fees")
+                db.execute("DELETE FROM students")
+                db.execute("DELETE FROM classes")
+                db.execute("DELETE FROM salary_disbursements")
+                db.execute("DELETE FROM teachers")
         rnd = random.Random(42)
         t0 = time.perf_counter()
         today = date.today()
@@ -60,15 +76,13 @@ def main(n_students: int) -> None:
                     "hire_date": (date(2015, 1, 1) + timedelta(days=rnd.randint(0, 3000))).isoformat(),
                 })
             TeacherRepository(db).bulk_insert(employees)
-            section_count = max(
-                len(school.SCHOOL_LEVELS),
-                (n_students + school.DEFAULT_CAPACITY - 1) // school.DEFAULT_CAPACITY)
+            db.executemany(
+                "INSERT INTO employee_school_years(employee_id, school_year) VALUES(?,?)",
+                [(i, school.current_school_year()) for i in range(1, len(employees) + 1)])
             classes = []
-            for section in range(section_count):
-                level = school.SCHOOL_LEVELS[section % len(school.SCHOOL_LEVELS)]
-                section_no = section // len(school.SCHOOL_LEVELS) + 1
+            for level in school.SCHOOL_LEVELS:
                 classes.append({
-                    "name": f"{level}-{section_no:02d}",
+                    "name": level,
                     "school_year": school.current_school_year(),
                     "capacity": school.DEFAULT_CAPACITY,
                     "main_teacher_id": rnd.randint(1, 40),
@@ -76,18 +90,25 @@ def main(n_students: int) -> None:
             ClassRepository(db).bulk_insert(classes)
             students = []
             for i in range(1, n_students + 1):
-                school_class = classes[(i - 1) % len(classes)]
-                level = school_class["name"].rsplit("-", 1)[0]
+                class_index = (i - 1) % len(classes)
+                level = classes[class_index]["name"]
                 students.append({
                     "matricule": f"E{today.year}{i:06d}",
                     "first_name": rnd.choice(FIRST),
                     "last_name": rnd.choice(LAST),
                     "birth_date": _birth_date_for_level(level, today, rnd),
                     "gender": rnd.choice("MF"),
-                    "class_id": (i - 1) % len(classes) + 1,
+                    "class_id": class_index + 1,
                     "status": "active",
+                    "tutor_profession": rnd.choice(PROFESSIONS),
+                    "father_profession": rnd.choice(PROFESSIONS),
+                    "mother_profession": rnd.choice(PROFESSIONS),
                 })
             StudentRepository(db).bulk_insert(students)
+            db.execute(
+                "INSERT INTO student_enrollments(student_id, school_year, class_id) "
+                "SELECT s.id, c.school_year, s.class_id FROM students s "
+                "JOIN classes c ON c.id=s.class_id")
             salaries = []
             for employee_id, employee in enumerate(employees, start=1):
                 if "prof" in employee["position"].casefold():
@@ -121,5 +142,8 @@ def main(n_students: int) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--students", type=int, default=30000)
-    main(ap.parse_args().students)
+    ap.add_argument("--students", type=int, default=280)
+    ap.add_argument("--replace-demo", action="store_true",
+                    help="remplacer les données scolaires de démonstration existantes")
+    args = ap.parse_args()
+    main(args.students, replace_demo=args.replace_demo)

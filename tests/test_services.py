@@ -11,7 +11,6 @@ from app.core import school
 from app.core.exceptions import AuthenticationError, DuplicateError, PermissionDenied, ValidationError
 from app.database.connection import Database
 from app.database.schema import MIGRATION_1, MIGRATIONS, migrate
-from app.repositories.repos import AuditRepository
 from tests.conftest import make_env
 
 VALID = {"first_name": "Miora", "last_name": "Rakoto", "birth_date": "2010-05-12"}
@@ -26,7 +25,7 @@ def test_create_student_autogenerates_matricule(env):
 
 def test_student_schema_and_legacy_contact_privacy(env):
     ctx, svc = env
-    assert ctx.db.one("PRAGMA user_version")[0] == 11
+    assert ctx.db.one("PRAGMA user_version")[0] == 14
     class_columns = {row["name"] for row in ctx.db.all("PRAGMA table_info(classes)")}
     assert "level" not in class_columns
     assert ctx.db.one("SELECT name FROM sqlite_master WHERE type='table' AND name='tuition_fees'") is None
@@ -65,7 +64,7 @@ def test_migration_from_existing_database_preserves_student_data():
             None, None, None, 0)
         teacher = db.one("SELECT position FROM teachers WHERE employee_no='ENS001'")
         assert teacher["position"] == "Enseignante"
-        assert db.one("PRAGMA user_version")[0] == 11
+        assert db.one("PRAGMA user_version")[0] == 14
         class_columns = {row["name"] for row in db.all("PRAGMA table_info(classes)")}
         assert "level" not in class_columns
     finally:
@@ -89,7 +88,7 @@ def test_salary_migration_preserves_existing_monthly_rates():
         salary = db.one(
             "SELECT monthly_amount, pay_type, hourly_rate FROM employee_salaries WHERE employee_id=1")
         assert tuple(salary) == (350000, "monthly", 0)
-        assert db.one("PRAGMA user_version")[0] == 11
+        assert db.one("PRAGMA user_version")[0] == 14
     finally:
         db.close()
 
@@ -105,7 +104,7 @@ def test_arrears_index_migration_from_existing_database():
         assert db.one("PRAGMA user_version")[0] == 10
         migrate(db)
 
-        assert db.one("PRAGMA user_version")[0] == 11
+        assert db.one("PRAGMA user_version")[0] == 14
         assert db.one(
             "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_payments_arrears'")
     finally:
@@ -141,6 +140,59 @@ def test_class_without_level_and_optional_parent_names(env):
         "+261 34 12 345 67", "0341234567", "0321234567")
     assert (student["tutor_profession"], student["father_profession"], student["mother_profession"]) == (
         "Enseignant", "Agriculteur", "Commerçante")
+
+
+def test_student_employee_and_class_history_filters(env):
+    _, svc = env
+    year_one, year_two = "2025-2026", "2026-2027"
+    class_one = svc.classes.create({"name": "CP", "school_year": year_one})
+    class_two = svc.classes.create({"name": "CP", "school_year": year_two})
+    svc.students.select_school_year(year_one)
+    student_id = svc.students.create({**VALID, "class_id": class_one})
+    svc.students.select_school_year(year_two)
+    svc.students.enroll_existing(student_id, class_two, year_two)
+    assert svc.students.page().total == 1
+    assert svc.students.get(student_id)["class_name"] == "CP"
+    svc.students.select_school_year(year_one)
+    assert svc.students.page().total == 1
+    assert svc.students.get(student_id)["school_year"] == year_one
+
+    employee_id = svc.teachers.create({
+        "employee_no": "ENSYEAR", "first_name": "Aina", "last_name": "Rabe",
+        "gender": "F", "birth_date": "1985-01-01", "hire_date": "2020-09-01",
+    })
+    svc.teachers.assign_year(employee_id, year_one)
+    svc.teachers.select_school_year(year_one)
+    assert svc.teachers.page().total == 1
+    svc.teachers.select_school_year(year_two)
+    assert svc.teachers.page().total == 1
+
+    assert svc.classes.page_for_year(year_one).total == 1
+    assert svc.classes.page_for_year(year_two).total == 1
+
+
+def test_student_and_class_references_must_match_school_year(env):
+    _, svc = env
+    current_year = school.current_school_year()
+    next_start = int(current_year[:4]) + 1
+    other_year = f"{next_start}-{next_start + 1}"
+    class_id = svc.classes.create({"name": "CP", "school_year": other_year})
+    with pytest.raises(ValidationError, match="année scolaire sélectionnée"):
+        svc.students.create({**VALID, "class_id": class_id})
+
+    employee_id = svc.teachers.create({
+        "employee_no": "ENSANNUAL", "first_name": "Aina", "last_name": "Rabe",
+        "gender": "F", "birth_date": "1985-01-01", "hire_date": "2020-09-01",
+    })
+    with pytest.raises(ValidationError, match="même année scolaire"):
+        svc.classes.create({
+            "name": "CE1", "school_year": other_year, "main_teacher_id": employee_id,
+        })
+    svc.teachers.assign_year(employee_id, other_year)
+    class_with_teacher = svc.classes.create({
+        "name": "CE1", "school_year": other_year, "main_teacher_id": employee_id,
+    })
+    assert svc.classes.get(class_with_teacher)["main_teacher_id"] == employee_id
 
 
 def test_student_parent_phone_validation(env):
@@ -240,10 +292,17 @@ def test_sql_injection_is_inert(env):
 
 def test_30000_students_pagination_and_search(env):
     ctx, svc = env
+    class_id = svc.classes.create({
+        "name": "CP", "school_year": school.current_school_year(),
+    })
     rows = [{"matricule": f"E{i:07d}", "first_name": "Jean", "last_name": f"Nom{i % 500:03d}",
-             "birth_date": "2010-01-01", "status": "active"} for i in range(30000)]
+             "birth_date": "2010-01-01", "status": "active", "class_id": class_id}
+            for i in range(30000)]
     with ctx.db.transaction():
         svc.students.repo.bulk_insert(rows)
+        ctx.db.execute(
+            "INSERT INTO student_enrollments(student_id,school_year,class_id) "
+            "SELECT id,?,? FROM students", (school.current_school_year(), class_id))
     t = time.perf_counter()
     p = svc.students.page(page=150, sort="last_name")
     s = svc.students.page(search="Nom042")
@@ -253,14 +312,10 @@ def test_30000_students_pagination_and_search(env):
     assert elapsed < 1.0, f"trop lent : {elapsed:.2f}s"
 
 
-def test_audit_log_is_append_only(env):
-    ctx, svc = env
-    svc.students.create(VALID)
-    assert AuditRepository(ctx.db).count() >= 1
-    with pytest.raises(Exception):
-        ctx.db.execute("DELETE FROM audit_log")
-    with pytest.raises(Exception):
-        ctx.db.execute("UPDATE audit_log SET action='x'")
+def test_audit_log_is_removed(env):
+    ctx, _ = env
+    assert ctx.db.one(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'") is None
 
 
 def test_lockout_after_failed_logins(env):
@@ -291,6 +346,56 @@ def test_cannot_remove_last_admin_or_self(env):
         svc.users.delete(me)
     with pytest.raises(ValidationError):
         svc.users.update(me, {"username": "admin", "full_name": "A", "role": "teacher", "is_active": 1})
+
+
+def test_search_works_on_joined_columns(env):
+    _, svc = env
+    class_id = svc.classes.create({"name": "CP", "school_year": "2026-2027"})
+    svc.fees.create({"class_id": class_id, "monthly_amount": 1000})
+    employee_id = svc.teachers.create({
+        "employee_no": "ENS001", "first_name": "Aina", "last_name": "Rakoto",
+        "gender": "F", "birth_date": "1985-01-01", "hire_date": "2020-09-01"})
+    svc.attendance.create({"employee_id": employee_id, "attendance_date": "2026-11-10",
+                           "status": "present", "arrival_time": "08:00", "departure_time": "17:00"})
+    svc.salaries.create({"employee_id": employee_id, "monthly_amount": 400000})
+
+    assert svc.attendance.page(search="Rak").total == 1
+    assert svc.salaries.page(search="Rak").total == 1
+    assert svc.fees.page(search="CP").total == 1
+    assert svc.attendance.page(search="introuvable").total == 0
+
+
+def test_self_demotion_updates_own_session(env):
+    ctx, svc = env
+    me = ctx.session.user.id
+    svc.users.create({"username": "admin2", "full_name": "Admin 2", "role": "admin",
+                      "is_active": 1, "password": "Str0ng!Passw0rd"})
+    svc.users.update(me, {"username": "admin", "full_name": "Admin", "role": "secretary",
+                          "is_active": 1})
+    assert ctx.session.user.role == "secretary"
+    assert not ctx.session.can("users.manage")
+
+
+def test_attendance_requires_valid_hhmm_and_employee(env):
+    _, svc = env
+    employee_id = svc.teachers.create({
+        "employee_no": "ENS002", "first_name": "Soa", "last_name": "Rabe",
+        "gender": "F", "birth_date": "1985-01-01", "hire_date": "2020-09-01"})
+    with pytest.raises(ValidationError, match="format attendu HH:MM"):
+        svc.attendance.create({"employee_id": employee_id, "attendance_date": "2026-11-10",
+                               "status": "present", "arrival_time": "7:30", "departure_time": "17:00"})
+    with pytest.raises(ValidationError, match="Employé"):
+        svc.attendance.create({"attendance_date": "2026-11-10", "status": "present",
+                               "arrival_time": "08:00", "departure_time": "17:00"})
+
+
+def test_statement_message_includes_school_year(env):
+    _, svc = env
+    class_id = svc.classes.create({"name": "CP", "school_year": "2026-2027"})
+    svc.students.select_school_year("2026-2027")
+    student_id = svc.students.create({**VALID, "class_id": class_id})
+    with pytest.raises(ValidationError, match=r"classe CP 2026-2027"):
+        svc.payments.statement(student_id)
 
 
 def test_user_listing_never_exposes_hash(env):
@@ -326,18 +431,58 @@ def test_demo_seed_uses_school_levels_and_age_ranges(tmp_path, monkeypatch):
     db = Database(config.DB_PATH)
     try:
         classes = db.all("SELECT id, name FROM classes")
-        assert {row["name"].rsplit("-", 1)[0] for row in classes} == set(school.SCHOOL_LEVELS)
+        assert {row["name"] for row in classes} == set(school.SCHOOL_LEVELS)
         students = db.all(
-            "SELECT s.birth_date, c.name FROM students s JOIN classes c ON c.id = s.class_id")
+            "SELECT s.birth_date, c.name FROM students s "
+            "JOIN student_enrollments e ON e.student_id=s.id "
+            "JOIN classes c ON c.id=e.class_id")
         assert len(students) == len(school.SCHOOL_LEVELS)
         today = date.today()
         for student in students:
-            level = student["name"].rsplit("-", 1)[0]
+            level = student["name"]
             birth_date = date.fromisoformat(student["birth_date"])
             age = today.year - birth_date.year - (
                 (today.month, today.day) < (birth_date.month, birth_date.day))
             minimum, maximum = school.LEVEL_AGE_RANGES[level]
             assert minimum <= age <= maximum
+    finally:
+        db.close()
+
+
+def test_demo_seed_replaces_school_data_but_keeps_accounts(tmp_path, monkeypatch):
+    from scripts.seed_demo import main as seed_demo
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "school.db")
+    monkeypatch.setattr(config, "BACKUP_DIR", tmp_path / "backups")
+    monkeypatch.setattr(config, "LOG_DIR", tmp_path / "logs")
+    db = Database(config.DB_PATH)
+    try:
+        migrate(db)
+        db.execute(
+            "INSERT INTO users(username,password_hash,full_name,role) VALUES(?,?,?,?)",
+            ("admin", "hash", "Admin", "admin"))
+        db.execute(
+            "INSERT INTO teachers(employee_no,first_name,last_name,hire_date) "
+            "VALUES('OLD','Aina','Rabe','2020-09-01')")
+        db.execute("INSERT INTO classes(name,school_year) VALUES('Ancienne classe','2025-2026')")
+        db.execute(
+            "INSERT INTO students(matricule,first_name,last_name,birth_date,class_id) "
+            "VALUES('OLD1','Miora','Rabe','2010-01-01',1)")
+        db.execute(
+            "INSERT INTO student_enrollments(student_id,school_year,class_id) VALUES(1,'2025-2026',1)")
+    finally:
+        db.close()
+
+    seed_demo(len(school.SCHOOL_LEVELS), replace_demo=True)
+
+    db = Database(config.DB_PATH)
+    try:
+        assert db.one("SELECT COUNT(*) FROM users")[0] == 1
+        assert db.one("SELECT COUNT(*) FROM students")[0] == len(school.SCHOOL_LEVELS)
+        assert {r["name"] for r in db.all("SELECT name FROM classes")} == set(school.SCHOOL_LEVELS)
+        assert db.one("SELECT COUNT(*) FROM student_enrollments")[0] == len(school.SCHOOL_LEVELS)
+        assert db.one("SELECT COUNT(*) FROM employee_school_years")[0] == 40
     finally:
         db.close()
 
@@ -411,6 +556,7 @@ def test_payment_history_is_grouped_by_class_and_school_year(env):
     ]
     for name, year in classes:
         class_id = svc.classes.create({"name": name, "school_year": year})
+        svc.students.select_school_year(year)
         student_id = svc.students.create({**VALID, "first_name": name.replace(" ", ""), "class_id": class_id})
         svc.fees.create({"class_id": class_id, "monthly_amount": 0, "droit_amount": 200})
         svc.payments.record(student_id, {"fee_code": "droit", "amount": 100, "method": "cash"})
@@ -426,7 +572,9 @@ def test_arrears_respect_the_class_school_year(env):
     future_year = "2027-2028"
     old_class = svc.classes.create({"name": "Classe ancienne", "school_year": old_year})
     future_class = svc.classes.create({"name": "Classe future", "school_year": future_year})
+    svc.students.select_school_year(old_year)
     svc.students.create({**VALID, "class_id": old_class})
+    svc.students.select_school_year(future_year)
     svc.students.create({**VALID, "first_name": "Aina", "class_id": future_class})
     svc.fees.create({"class_id": old_class, "monthly_amount": 1000})
     svc.fees.create({"class_id": future_class, "monthly_amount": 1000})
@@ -512,6 +660,96 @@ def test_dashboard_and_billing_permissions():
     assert "collected_year" not in teacher.dashboard.summary()
     with pytest.raises(PermissionDenied):
         teacher.payments.statement(1)
+
+
+def test_expense_service_records_and_validates(env):
+    ctx, svc = env
+    expense_id = svc.expenses.create({
+        "category": "loyer", "label": "Loyer septembre",
+        "amount": 500000, "expense_date": "2026-09-05"})
+    row = svc.expenses.get(expense_id)
+    assert (row["category"], row["amount"], row["expense_date"]) == ("loyer", 500000, "2026-09-05")
+    assert row["created_by"] == ctx.session.user.id
+    assert svc.expenses.page().total == 1
+
+    for bad in ({"category": "inconnue", "amount": 1000, "expense_date": "2026-09-05"},
+                {"category": "eau", "amount": 0, "expense_date": "2026-09-05"},
+                {"category": "eau", "amount": 1000, "expense_date": "pas-une-date"}):
+        with pytest.raises(ValidationError):
+            svc.expenses.create(bad)
+
+
+def test_expenses_are_reserved_to_finance_roles():
+    from tests.conftest import make_env
+
+    _, admin = make_env("admin")
+    _, secretary = make_env("secretary")
+    _, teacher = make_env("teacher")
+    payload = {"category": "eau", "amount": 20000, "expense_date": "2026-09-10"}
+    assert admin.expenses.create(payload) > 0
+    assert secretary.expenses.create(payload) > 0
+    with pytest.raises(PermissionDenied):
+        teacher.expenses.create(payload)
+
+
+def test_dashboard_finance_series_follows_profit_formula(env):
+    ctx, svc = env
+    year = "2026-2027"
+    class_id = svc.classes.create({"name": "Classe Bénéfice", "school_year": year})
+    student_id = svc.students.create({**VALID, "class_id": class_id})
+    teacher_id = svc.teachers.create({
+        "employee_no": "ENS900", "first_name": "Aina", "last_name": "Rakoto",
+        "gender": "F", "birth_date": "1985-01-01", "hire_date": "2010-01-01",
+        "position": "Maîtresse"})
+
+    insert = lambda sql, params=(): ctx.db.execute(sql, params)
+    for paid_at, amount, cancelled in (("2026-09-10", 1000000, 0), ("2026-09-25", 500000, 0),
+                                       ("2026-09-15", 999999, 1), ("2026-10-05", 800000, 0)):
+        insert("INSERT INTO payments (student_id, school_year, kind, month, fee_code, amount, "
+               "method, paid_at, cancelled) VALUES (?, ?, 'registration', NULL, 'droit', ?, 'cash', ?, ?)",
+               (student_id, year, amount, paid_at, cancelled))
+    for payout_date, amount in (("2026-09-30", 400000), ("2026-10-15", 250000)):
+        insert("INSERT INTO salary_disbursements (employee_id, title, payout_date, school_year, amount) "
+               "VALUES (?, 'Salaire', ?, ?, ?)", (teacher_id, payout_date, year, amount))
+    for category, expense_date, amount in (("loyer", "2026-09-01", 600000),
+                                           ("electricite", "2026-09-20", 120000),
+                                           ("eau", "2026-09-20", 30000),
+                                           ("autre", "2026-09-28", 50000),
+                                           ("loyer", "2026-10-01", 600000)):
+        insert("INSERT INTO expenses (category, label, amount, expense_date) VALUES (?, '', ?, ?)",
+               (category, amount, expense_date))
+
+    series = svc.dashboard.finance_series(year, today=date(2026, 9, 20))
+    assert series["school_year"] == year
+    assert len(series["months"]) == len(school.SCHOOL_MONTHS)
+    by_ym = {month["ym"]: month for month in series["months"]}
+
+    september = by_ym["2026-09"]
+    assert (september["collected"], september["salaries"]) == (1500000, 400000)
+    assert (september["loyer"], september["utilities"], september["other"]) == (600000, 150000, 50000)
+    assert september["expenses"] == 800000
+    assert september["spending"] == 1200000
+    assert september["profit"] == 300000
+    assert september["profit"] == september["collected"] - (
+        september["salaries"] + september["loyer"] + september["utilities"] + september["other"])
+
+    october = by_ym["2026-10"]
+    assert october["profit"] == 800000 - (250000 + 600000)
+    assert october["profit"] < 0
+
+    totals = series["totals"]
+    assert totals["collected"] == 2300000
+    assert totals["spending"] == 2050000
+    assert totals["profit"] == 250000
+    assert series["default_index"] == 0
+
+
+def test_finance_series_is_none_without_finance_access():
+    from tests.conftest import make_env
+
+    _, teacher = make_env("teacher")
+    assert teacher.dashboard.finance_available() is False
+    assert teacher.dashboard.finance_series("2026-2027") is None
 
 
 def test_class_fee_migration_preserves_legacy_fees_and_payments():

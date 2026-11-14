@@ -37,7 +37,8 @@ class BaseRepository:
 
     def count(self, search="") -> int:
         where, params = self._where(search)
-        return self.db.one(f"SELECT COUNT(*) AS n FROM {self.table} t{where}", params)["n"]
+        return self.db.one(
+            f"SELECT COUNT(*) AS n FROM {self.table} t {self.joins}{where}", params)["n"]
 
     def get(self, id_):
         return self.db.one(f"{self._select()} WHERE t.id = ?", (id_,))

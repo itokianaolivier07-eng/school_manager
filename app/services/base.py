@@ -1,12 +1,10 @@
-"""Service CRUD générique : permission -> validation -> transaction -> audit."""
-import json
+"""Service CRUD générique : permission -> validation -> transaction."""
 import math
 import sqlite3
 from dataclasses import dataclass, field
 
 from app import config
 from app.core.exceptions import DuplicateError, NotFoundError, ValidationError
-from app.repositories.repos import AuditRepository
 
 
 @dataclass
@@ -31,11 +29,6 @@ def translate_integrity(e: sqlite3.IntegrityError):
     return ValidationError("Données refusées par la base.")
 
 
-def safe_details(data) -> str:
-    clean = {k: v for k, v in data.items() if "password" not in k}
-    return json.dumps(clean, ensure_ascii=False, default=str)[:1000]
-
-
 class CrudService:
     entity = ""
     repo_cls = None
@@ -46,7 +39,6 @@ class CrudService:
         self.ctx = ctx
         self.db = ctx.db
         self.repo = self.repo_cls(ctx.db)
-        self.audit = AuditRepository(ctx.db)
 
     # --- à surcharger ---
     def validate(self, data) -> dict:
@@ -59,9 +51,6 @@ class CrudService:
     @property
     def user(self):
         return self.ctx.session.user
-
-    def log(self, action, entity_id=None, details=None):
-        self.audit.log(self.user, action, self.entity, entity_id, details)
 
     def page(self, search="", sort=None, desc=None, page=0, size=config.PAGE_SIZE) -> Page:
         self.ctx.session.require(self.read_perm)
@@ -85,7 +74,6 @@ class CrudService:
                 new_id = self.repo.insert(self.prepare(dict(clean)))
             except sqlite3.IntegrityError as e:
                 raise translate_integrity(e) from e
-            self.log("create", new_id, safe_details(clean))
         return new_id
 
     def update(self, id_, data) -> None:
@@ -98,7 +86,6 @@ class CrudService:
                 raise translate_integrity(e) from e
             if not changed:
                 raise NotFoundError("Élément introuvable.")
-            self.log("update", id_, safe_details(clean))
 
     def delete(self, id_) -> None:
         self.ctx.session.require(self.delete_perm)
@@ -109,4 +96,3 @@ class CrudService:
                 raise translate_integrity(e) from e
             if not changed:
                 raise NotFoundError("Élément introuvable.")
-            self.log("delete", id_)

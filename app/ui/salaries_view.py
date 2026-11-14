@@ -46,7 +46,7 @@ class SalaryDisbursementDialog(QDialog):
         self.employee = QComboBox()
         self.compensations = {}
         for item in salaries.compensation_options():
-            label = f"{item['employee_no']} — {item['last_name']} {item['first_name']}"
+            label = f"{item['employee_no']} - {item['last_name']} {item['first_name']}"
             if item["position"]:
                 label += f" ({item['position']})"
             self.employee.addItem(label, item["employee_id"])
@@ -140,9 +140,10 @@ class SalaryDisbursementDialog(QDialog):
 
 
 class SalariesView(QWidget):
-    def __init__(self, services, ctx):
+    def __init__(self, services, ctx, on_change=None):
         super().__init__()
         self.services = services
+        self.on_change = on_change
         self.tabs = QTabWidget()
         columns = [
             ("employee_no", "N° employé"), ("employee_label", "Employé"),
@@ -160,7 +161,8 @@ class SalariesView(QWidget):
             services.salaries, columns, fields, ctx, noun="rémunération",
             dialog_factory=lambda title, dialog_fields, initial, parent, readonly=False:
                 SalaryBaseDialog(title, dialog_fields, initial, parent, readonly=readonly,
-                                 salaries=services.salaries))
+                                 salaries=services.salaries),
+            on_change=on_change)
         self.tabs.addTab(self.base_view, "Rémunérations de base")
 
         payout_columns = [
@@ -173,7 +175,8 @@ class SalariesView(QWidget):
         actions = [("Nouvelle sortie", self._new_disbursement, "salaries.write")]
         self.history_view = CrudView(
             services.salary_disbursements, payout_columns, [], ctx, noun="sortie de salaire",
-            read_only=True, extra_actions=actions, show_row_actions=False)
+            read_only=True, extra_actions=actions, show_row_actions=False,
+            on_change=on_change)
         self.tabs.addTab(self.history_view, "Historique des sorties")
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
@@ -182,11 +185,11 @@ class SalariesView(QWidget):
         dialog = SalaryDisbursementDialog(
             self.services.salaries, self.services.salary_disbursements, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            view.refresh()
+            if self.on_change is not None:
+                self.on_change()
+            else:
+                view.refresh()
 
     def refresh(self):
-        current = self.tabs.currentWidget()
-        if current is self.base_view:
-            self.base_view.refresh()
-        elif current is self.history_view:
-            self.history_view.refresh()
+        self.base_view.refresh()
+        self.history_view.refresh()

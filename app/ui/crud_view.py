@@ -12,13 +12,14 @@ from app.ui.utils import ask_confirmation, handle_error
 class CrudView(QWidget):
     def __init__(self, service, columns, fields, ctx, *, noun="élément", read_only=False,
                  extra_actions=(), show_row_actions=True, page_loader=None,
-                 dialog_factory=FormDialog):
+                 dialog_factory=FormDialog, top_controls=(), on_change=None):
         super().__init__()
         self.service, self.columns, self.fields, self.ctx, self.noun = service, columns, fields, ctx, noun
         self.read_only = read_only
         self.show_row_actions = show_row_actions
         self.page_loader = page_loader
         self.dialog_factory = dialog_factory
+        self.on_change = on_change
         self.sort_key, self.desc, self.page_no = None, service.default_desc, 0
         self.display_columns = list(columns)
         if show_row_actions:
@@ -57,6 +58,8 @@ class CrudView(QWidget):
         top = QHBoxLayout()
         top.setSpacing(8)
         top.addWidget(self.search, 1)
+        for control in top_controls:
+            top.addWidget(control)
         s = ctx.session
         can_write = not read_only and s.can(service.write_perm)
         if can_write:
@@ -105,10 +108,16 @@ class CrudView(QWidget):
             self.page_no = page.pages - 1
             return self.refresh()
         self.model.set_rows(page.rows)
-        self.info.setText(f"{page.total} résultat(s) — page {page.page + 1} / {page.pages}")
+        self.info.setText(f"{page.total} résultat(s) - page {page.page + 1} / {page.pages}")
         self.prev_btn.setEnabled(page.page > 0)
         self.next_btn.setEnabled(page.page + 1 < page.pages)
         self._install_row_actions()
+
+    def notify_changed(self):
+        if self.on_change is not None:
+            self.on_change()
+        else:
+            self.refresh()
 
     def _install_row_actions(self):
         if not self.show_row_actions:
@@ -188,13 +197,13 @@ class CrudView(QWidget):
         while True:
             dlg = self.dialog_factory(title, self.fields, initial, self, readonly=readonly)
             if dlg.exec() != QDialog.DialogCode.Accepted:
-                return
+                return False
             if readonly:
-                return
+                return False
             values = dlg.values()
             try:
                 submit(values)
-                return
+                return True
             except AppError as e:
                 handle_error(self, e)
                 initial = values
@@ -203,8 +212,8 @@ class CrudView(QWidget):
                 return
 
     def add(self):
-        self._dialog(f"Ajouter : {self.noun}", {}, self.service.create)
-        self.refresh()
+        if self._dialog(f"Ajouter : {self.noun}", {}, self.service.create):
+            self.notify_changed()
 
     def view_item(self, row_idx=None):
         id_ = self._row_id(row_idx)
@@ -224,8 +233,9 @@ class CrudView(QWidget):
             initial = self.service.get(id_)
         except Exception as e:
             return handle_error(self, e)
-        self._dialog(f"Modifier : {self.noun}", initial, lambda v: self.service.update(id_, v))
-        self.refresh()
+        if self._dialog(f"Modifier : {self.noun}", initial,
+                        lambda v: self.service.update(id_, v)):
+            self.notify_changed()
 
     def remove(self, row_idx=None):
         id_ = self._row_id(row_idx)
@@ -236,6 +246,6 @@ class CrudView(QWidget):
             return
         try:
             self.service.delete(id_)
+            self.notify_changed()
         except Exception as e:
             handle_error(self, e)
-        self.refresh()

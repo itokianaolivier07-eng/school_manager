@@ -11,6 +11,7 @@ PHONE_RE = re.compile(r"^\+?[0-9 .\-]{6,20}$")
 CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9\-_]{1,19}$")
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._\-]{3,50}$")
 YEAR_RE = re.compile(r"^\d{4}-\d{4}$")
+TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 def text(data, key, label, *, required=True, max_len=100, pattern=None, upper=False, error=None):
@@ -63,6 +64,15 @@ def choice(data, key, label, allowed, *, required=True, default=None):
     if v not in allowed:
         raise ValidationError(f"{label} : valeur non autorisée.")
     return v
+
+
+def time_hhmm(data, key, label, *, required=False):
+    raw = text(data, key, label, required=required, max_len=5)
+    if raw is None:
+        return None
+    if not TIME_RE.match(raw):
+        raise ValidationError(f"{label} : format attendu HH:MM.")
+    return raw
 
 
 def integer(data, key, label, *, required=False, minimum=None, maximum=None):

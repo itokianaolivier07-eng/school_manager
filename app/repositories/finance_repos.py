@@ -27,6 +27,18 @@ class TuitionFeeRepository(BaseRepository):
     default_sort = "c.name"
 
 
+class ExpenseRepository(BaseRepository):
+    table = "expenses"
+    columns = ("category", "label", "amount", "expense_date", "created_by")
+    extra_cols = ", u.full_name AS created_by_name"
+    joins = "LEFT JOIN users u ON u.id = t.created_by"
+    search_fields = ("t.label", "t.category")
+    sort_fields = {"expense_date": "t.expense_date", "amount": "t.amount",
+                   "category": "t.category", "label": "t.label"}
+    default_sort = "t.expense_date"
+    default_desc = True
+
+
 class PaymentRepository(BaseRepository):
     table = "payments"
     columns = ("receipt_no", "student_id", "school_year", "kind", "month", "fee_code", "amount", "method",
@@ -41,8 +53,10 @@ class PaymentRepository(BaseRepository):
                   f"(CASE t.fee_code {' '.join(_fee_due_cases())} END) "
                   "THEN 'Payé totalement' ELSE 'Partiel' END AS payment_status")
     joins = ("JOIN students s ON s.id = t.student_id "
-             "LEFT JOIN classes c ON c.id = s.class_id "
-             "LEFT JOIN class_tuition_fees f ON f.class_id = s.class_id AND f.school_year = t.school_year")
+             "LEFT JOIN student_enrollments e ON e.student_id=s.id AND e.school_year=t.school_year "
+             "LEFT JOIN classes c ON c.id=COALESCE(e.class_id,s.class_id) "
+             "LEFT JOIN class_tuition_fees f ON f.class_id=COALESCE(e.class_id,s.class_id) "
+             "AND f.school_year=t.school_year")
     search_fields = ("t.receipt_no",)
     sort_fields = {"class_name": "c.name", "school_year": "t.school_year",
                    "receipt_no": "t.receipt_no", "paid_at": "t.paid_at", "amount": "t.amount"}
@@ -76,6 +90,6 @@ class PaymentRepository(BaseRepository):
             conditions.append("t.school_year = ?")
             params.append(school_year)
         if class_id is not None:
-            conditions.append("s.class_id = ?")
+            conditions.append("COALESCE(e.class_id,s.class_id) = ?")
             params.append(int(class_id))
         return (f" WHERE {' AND '.join(conditions)}" if conditions else ""), params
