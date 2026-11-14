@@ -234,6 +234,22 @@ def test_arrears_table_paginates_large_result_sets(qapp):
     assert arrears.table.item(0, 0).text() == "MAT101"
 
 
+def test_arrears_are_loaded_only_after_explicit_request(qapp):
+    ctx, services = make_env()
+    view = FeesView(services, ctx)
+    arrears = view.arrears
+    calls = []
+    arrears.sv.payments.arrears = lambda **_filters: calls.append(True) or []
+
+    view.tabs.setCurrentWidget(arrears)
+    view.refresh()
+    assert calls == []
+    assert "cliquez sur" in arrears.total.text()
+
+    arrears.compute_btn.click()
+    assert calls == [True]
+
+
 def test_salary_screen_has_base_and_disbursement_submenus(qapp):
     ctx, services = make_env()
     view = SalariesView(services, ctx)

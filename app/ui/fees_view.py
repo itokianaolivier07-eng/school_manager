@@ -226,7 +226,7 @@ class ArrearsTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.total = QLabel()
+        self.total = QLabel("Choisissez les filtres puis cliquez sur « Afficher les impayés ».")
         self.page_size = 100
         self.page = 0
         self.rows = []
@@ -248,12 +248,6 @@ class ArrearsTab(QWidget):
         lay.addLayout(top)
         lay.addWidget(self.table, 1)
         lay.addLayout(pagination)
-
-    def refresh(self):
-        try:
-            self.compute()
-        except Exception as e:
-            handle_error(self, e)
 
     def compute(self):
         try:
