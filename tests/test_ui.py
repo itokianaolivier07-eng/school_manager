@@ -124,6 +124,8 @@ def test_class_teacher_choices_follow_school_year_in_form(qapp):
 def test_main_window_is_centered_on_primary_screen(qapp):
     ctx, services = make_env()
     window = MainWindow(services, ctx)
+    assert window.width() == 1000
+    assert window.height() == 650
     window.show()
     qapp.processEvents()
 

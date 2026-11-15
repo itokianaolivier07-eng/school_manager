@@ -23,7 +23,7 @@ class MainWindow(QMainWindow):
         self.relogin = False
         user = ctx.session.user
         self.setWindowTitle(f"Gestion d'école — {config.CURRENT_SCHOOL}")
-        self.resize(1280, 780)
+        self.resize(1000, 650)
         self._center_on_primary_screen()
         self.user_info = QLabel(f"{user.full_name} - {ROLE_LABELS.get(user.role, user.role)}")
         self.user_info.setObjectName("userInfo")
