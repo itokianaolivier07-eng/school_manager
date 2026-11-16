@@ -1,5 +1,10 @@
 """Repository générique : tout le SQL est paramétré, tri/recherche en liste blanche."""
 
+import re
+
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 def escape_like(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -22,6 +27,13 @@ class BaseRepository:
     default_sort = "t.id"
 
     def __init__(self, db):
+        # Seuls les noms de table/colonnes sont insérés dans le SQL (jamais une valeur saisie) :
+        # on garantit qu'ils sont de simples identifiants.
+        if self.table and not _IDENT.match(self.table):
+            raise ValueError(f"Nom de table invalide : {self.table!r}")
+        for column in self.columns:
+            if not _IDENT.match(column):
+                raise ValueError(f"Nom de colonne invalide : {column!r}")
         self.db = db
 
     def _select(self) -> str:

@@ -126,8 +126,11 @@ def test_class_teacher_choices_follow_school_year_in_form(qapp):
 def test_main_window_is_centered_on_primary_screen(qapp):
     ctx, services = make_env()
     window = MainWindow(services, ctx)
-    assert window.width() == 1000
-    assert window.height() == 650
+    avail = qapp.primaryScreen().availableGeometry()
+    # La fenêtre s'adapte à l'écran : 1000x650 au maximum, jamais plus grande que l'écran.
+    assert window.width() == max(min(1000, int(avail.width() * 0.95)), min(800, avail.width()))
+    assert window.height() == max(min(650, int(avail.height() * 0.90)), min(500, avail.height()))
+    assert window.width() <= max(avail.width(), 800)
     window.show()
     qapp.processEvents()
 

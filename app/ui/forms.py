@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from PyQt6.QtCore import QDate
+from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (QComboBox, QDateEdit, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                             QFormLayout, QLineEdit, QVBoxLayout)
+from PyQt6.QtWidgets import (QApplication, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QDoubleSpinBox,
+                             QFormLayout, QFrame, QLineEdit, QScrollArea, QVBoxLayout, QWidget)
 
 
 @dataclass
@@ -33,7 +33,7 @@ class FormDialog(QDialog):
         self.widgets = {}
         self.readonly = readonly
         initial = initial or {}
-        form = QFormLayout()
+        form = self.form = QFormLayout()
         for f in fields:
             w = self._make(f, initial.get(f.name))
             if readonly:
@@ -52,9 +52,22 @@ class FormDialog(QDialog):
             buttons.rejected.connect(self.reject)
         for button in buttons.buttons():
             button.setIcon(QIcon())
+        # Les champs défilent si l'écran est petit ; les boutons restent toujours visibles.
+        content = QWidget()
+        content.setLayout(form)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
+        layout.addWidget(scroll)
         layout.addWidget(buttons)
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            self.setMaximumHeight(int(avail.height() * 0.92))
+            self.resize(self.width(), min(content.sizeHint().height() + 90, int(avail.height() * 0.92)))
 
     def _make(self, f, value):
         if f.kind in ("text", "password"):

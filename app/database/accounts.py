@@ -1,4 +1,6 @@
 """Comptes utilisateurs partagés : une seule authentification pour les trois écoles."""
+from app.core.exceptions import AppError
+
 VERSION = 2
 
 _TABLE = """
@@ -26,6 +28,9 @@ UPGRADE_2 = ("ALTER TABLE users RENAME TO users_v1;\n" + _TABLE +
 
 def migrate_accounts(db) -> None:
     current = db.one("PRAGMA user_version")[0]
+    if current > VERSION:
+        raise AppError("La base des comptes a été créée par une version plus récente de "
+                       "SchoolManager. Installez la dernière version du logiciel.")
     if current >= VERSION:
         return
     script = SCHEMA if current == 0 else UPGRADE_2

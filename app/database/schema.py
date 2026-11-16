@@ -2,6 +2,8 @@
 import logging
 import sqlite3
 
+from app.core.exceptions import AppError
+
 from app.database.migration2 import MIGRATION_2
 from app.database.migration3 import MIGRATION_3
 from app.database.migration4 import MIGRATION_4
@@ -108,6 +110,9 @@ MIGRATIONS = [(1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3), (4, MIGRATIO
 
 def migrate(db) -> None:
     current = db.one("PRAGMA user_version")[0]
+    if current > MIGRATIONS[-1][0]:
+        raise AppError("Cette base de données a été créée par une version plus récente de "
+                       "SchoolManager. Installez la dernière version du logiciel.")
     for version, sql in MIGRATIONS:
         if version <= current:
             continue

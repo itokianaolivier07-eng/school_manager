@@ -1,6 +1,6 @@
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+from PyQt6.QtWidgets import (QApplication, QDialog, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
                              QMenu, QSizePolicy, QStackedWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from app import config
@@ -21,7 +21,9 @@ class MainWindow(QMainWindow):
         self.relogin = False
         user = ctx.session.user
         self.setWindowTitle(f"Gestion d'école — {config.CURRENT_SCHOOL}")
-        self.resize(1000, 650)
+        avail = QApplication.primaryScreen().availableGeometry()
+        self.setMinimumSize(min(800, avail.width()), min(500, avail.height()))
+        self.resize(min(1000, int(avail.width() * 0.95)), min(650, int(avail.height() * 0.90)))
         self._center_on_primary_screen()
         self.user_info = QLabel(f"{user.full_name} - {ROLE_LABELS.get(user.role, user.role)}")
         self.user_info.setObjectName("userInfo")
@@ -89,10 +91,13 @@ class MainWindow(QMainWindow):
             account_menu.addAction(act)
         self._add_toolbar_menu("Compte", account_menu)
         if ctx.session.can("backup.run"):
-            act = QAction("Sauvegarder la base", self)
-            act.triggered.connect(self.backup)
             data_menu = QMenu("Données", self)
-            data_menu.addAction(act)
+            for label, slot in (("Sauvegarder la base", self.backup),
+                                ("Restaurer une sauvegarde…", self.restore_backup),
+                                ("Dossier de sauvegarde externe…", self.choose_external_backup)):
+                act = QAction(label, self)
+                act.triggered.connect(slot)
+                data_menu.addAction(act)
             self._add_toolbar_menu("Données", data_menu)
 
         self.idle = QTimer(self)
@@ -145,7 +150,48 @@ class MainWindow(QMainWindow):
     def backup(self):
         try:
             path = self.sv.backup.backup()
-            QMessageBox.information(self, "Sauvegarde", f"Sauvegarde créée :\n{path}")
+            message = f"Sauvegarde créée :\n{path}"
+            external = config.external_backup_dir()
+            if external is None:
+                message += "\n\n⚠ Aucune copie externe : Données > Dossier de sauvegarde externe…"
+            elif self.sv.backup.external_error:
+                message += f"\n\n⚠ Copie externe impossible :\n{self.sv.backup.external_error}"
+            else:
+                message += f"\n\nCopie externe : {external}"
+            QMessageBox.information(self, "Sauvegarde", message)
+        except Exception as e:
+            handle_error(self, e)
+
+    def choose_external_backup(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Dossier de copie externe (clé USB, autre disque, cloud)",
+            str(config.external_backup_dir() or config.ROOT_DIR))
+        if not folder:
+            return
+        try:
+            config.set_external_backup_dir(folder)
+            self.backup()
+        except Exception as e:
+            handle_error(self, e)
+
+    def restore_backup(self):
+        external = config.external_backup_dir()
+        start = str(external / config.DATA_DIR.name) if external else str(config.BACKUP_DIR)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choisir une sauvegarde de l'école", start, "Sauvegardes école (school_*.db)")
+        if not path:
+            return
+        answer = QMessageBox.question(
+            self, "Restaurer",
+            "Les données actuelles de l'école seront remplacées par cette sauvegarde.\n"
+            "Une copie de sécurité de l'état actuel est faite avant. Continuer ?")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            safety = self.sv.backup.restore(path)
+            self.refresh_data_views()
+            QMessageBox.information(self, "Restauration",
+                                    f"Sauvegarde restaurée.\nCopie de l'état précédent :\n{safety}")
         except Exception as e:
             handle_error(self, e)
 

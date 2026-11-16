@@ -26,6 +26,25 @@ BACKUP_KEEP = 10
 MAX_IMPORT_BYTES = 25 * 1024 * 1024
 
 
+def external_backup_dir():
+    """Dossier de copie externe des sauvegardes (clé USB, autre disque, cloud synchronisé), ou None."""
+    value = os.environ.get("SCHOOL_BACKUP_DIR", "").strip()
+    if not value:
+        try:
+            value = (ROOT_DIR / "external_backup_dir.txt").read_text(encoding="utf-8").strip()
+        except OSError:
+            value = ""
+    return Path(value) if value else None
+
+
+def set_external_backup_dir(path) -> None:
+    target = ROOT_DIR / "external_backup_dir.txt"
+    if path:
+        target.write_text(str(path), encoding="utf-8")
+    else:
+        target.unlink(missing_ok=True)
+
+
 def use_school(index: int) -> None:
     """Active l'école d'indice donné ; ses données restent isolées des autres écoles."""
     global CURRENT_SCHOOL, DATA_DIR, DB_PATH, BACKUP_DIR

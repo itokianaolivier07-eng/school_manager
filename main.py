@@ -5,11 +5,12 @@ import sys
 if sys.platform.startswith("linux"):
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
-from PyQt6.QtCore import QEvent, QObject
+from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from app import config
 from app.core.context import AppContext
+from app.core.exceptions import AppError
 from app.core.logging_setup import setup_logging
 from app.core.session import Session
 from app.database.accounts import migrate_accounts, mirror_users
@@ -41,6 +42,8 @@ def main() -> int:
     try:
         config.ensure_root()
         setup_logging()
+        QApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
         app = QApplication(sys.argv)
         app.setApplicationName(config.APP_NAME)
         apply_theme(app)
@@ -89,7 +92,8 @@ def main() -> int:
         app = QApplication.instance() or QApplication(sys.argv)
         QMessageBox.critical(
             None, "Démarrage impossible",
-            "L'application a rencontré une erreur et ne peut pas continuer. Consultez le journal.")
+            str(exc) if isinstance(exc, AppError)
+            else "L'application a rencontré une erreur et ne peut pas continuer. Consultez le journal.")
         return 1
     finally:
         for database in (db, accounts):

@@ -29,7 +29,7 @@ class SalaryBaseDialog(FormDialog):
             widget = self.widgets[field]
             visible = (field == "hourly_rate") == is_hourly
             widget.setVisible(visible)
-            self.layout().itemAt(0).layout().labelForField(widget).setVisible(visible)
+            self.form.labelForField(widget).setVisible(visible)
 
 
 class SalaryDisbursementDialog(QDialog):
