@@ -33,6 +33,8 @@ _TEMPLATE = """
 * { font-family: "Inter", "Segoe UI", "Noto Sans", "Ubuntu", sans-serif; font-size: 10.5pt; }
 QMainWindow, QDialog, QWidget#page { background: %(main)s; }
 QDialog#appDialog { background: %(main)s; }
+QScrollArea#formScroll { background: %(main)s; border: none; }
+QWidget#formContent { background: %(main)s; }
 QFrame#dialogCard { background: %(card)s; border: 1px solid %(border)s; border-radius: 16px; }
 QLabel { color: %(text)s; background: transparent; }
 QLabel#pageTitle { font-size: 20pt; font-weight: 700; color: %(title)s; }
@@ -121,15 +123,20 @@ QPushButton#rowDeleteBtn:hover { background: %(danger_border)s; }
 
 QWidget#actionsCell { background: transparent; }
 
-QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox {
+QLineEdit, QComboBox, QDateEdit, QTimeEdit, QDoubleSpinBox, QSpinBox {
     color: %(text)s; background: %(card)s; border: 1px solid %(input_border)s; border-radius: 9px; padding: 7px 10px;
     selection-background-color: %(selection)s; selection-color: %(selection_text)s; min-height: 20px; }
-QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QDoubleSpinBox:focus { border: 2px solid %(accent)s; }
+QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QTimeEdit:focus, QDoubleSpinBox:focus { border: 2px solid %(accent)s; }
 QLineEdit#searchField { padding: 9px 14px; font-size: 10.5pt; }
 QLineEdit#loginUser, QLineEdit#loginPassword { min-height: 28px; }
 QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 26px; }
 QComboBox QAbstractItemView { color: %(text)s; background: %(card)s; border: 1px solid %(input_border)s;
                               selection-background-color: %(accent_lighter)s; selection-color: %(selection_text)s; }
+QCalendarWidget { color: %(text)s; background: %(card)s; }
+QCalendarWidget QToolButton { color: %(text)s; background: %(card)s; }
+QCalendarWidget QToolButton:hover { background: %(accent_lighter)s; }
+QCalendarWidget QAbstractItemView { color: %(text)s; background: %(card)s;
+    selection-background-color: %(accent)s; selection-color: %(on_accent)s; }
 
 QTableView, QTableWidget, QListWidget#results { background: %(card)s; alternate-background-color: %(table_alt)s;
     color: %(text)s; border: 1px solid %(border)s; border-radius: 12px; gridline-color: transparent;

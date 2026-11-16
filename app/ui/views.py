@@ -138,7 +138,10 @@ def students_view(sv, ctx, on_change=None):
         ("Réinscrire l'élève sélectionné", enroll_selected, "students.write"),
         ("Retirer de cette année", unenroll_selected, "students.write"),
         ("Importer CSV", import_csv, "students.import"),
-        ("Exporter CSV", export_csv, "students.export")], on_change=on_change)
+        ("Exporter CSV", export_csv, "students.export")],
+        dialog_factory=lambda title, dialog_fields, initial, parent, readonly=False: FormDialog(
+            title, dialog_fields, initial, parent, readonly=readonly, columns=2),
+        on_change=on_change)
 
     def refresh_filters():
         selected = _sync_year_filter(
@@ -289,8 +292,8 @@ def attendance_view(sv, ctx, on_change=None):
                    if ctx.session.can("teachers.read") else [])),
               Field("attendance_date", "Date de pointage", "date", required=True),
               Field("status", "Statut", "combo", required=True, choices=ATTENDANCE_STATUS),
-              Field("arrival_time", "Heure d'arrivée (HH:MM)", max_len=5),
-              Field("departure_time", "Heure de départ (HH:MM)", max_len=5),
+              Field("arrival_time", "Heure d'arrivée", "time"),
+              Field("departure_time", "Heure de départ", "time"),
               Field("comment", "Commentaire", max_len=200)]
     return CrudView(sv.attendance, columns, fields, ctx, noun="pointage", on_change=on_change)
 

@@ -23,6 +23,22 @@ def test_create_student_autogenerates_matricule(env):
     assert row["matricule"].startswith("E") and row["status"] == "active"
 
 
+def test_student_minimum_age_allows_four_months_but_not_three(env, monkeypatch):
+    _, svc = env
+
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 16)
+
+    monkeypatch.setattr("app.services.student_service.date", FrozenDate)
+    monkeypatch.setattr("app.core.validators.date", FrozenDate)
+
+    assert svc.students.validate({**VALID, "birth_date": "2026-07-16"})["birth_date"] == "2026-07-16"
+    with pytest.raises(ValidationError, match="âge hors limites"):
+        svc.students.validate({**VALID, "birth_date": "2026-08-16"})
+
+
 def test_student_schema_and_legacy_contact_privacy(env):
     ctx, svc = env
     assert ctx.db.one("PRAGMA user_version")[0] == 15

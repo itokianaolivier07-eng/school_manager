@@ -117,9 +117,11 @@ class StudentService(CrudService):
         d = V.date_iso(data, "birth_date", "Date de naissance")
         today = date.today()
         birth_date = date.fromisoformat(d)
-        age = today.year - birth_date.year - (
-            (today.month, today.day) < (birth_date.month, birth_date.day))
-        if not school.MIN_AGE <= age <= school.MAX_AGE:
+        age_months = (today.year - birth_date.year) * 12 + today.month - birth_date.month
+        if today.day < birth_date.day:
+            age_months -= 1
+        age = age_months // 12
+        if age_months < school.MIN_AGE_MONTHS or age > school.MAX_AGE:
             raise ValidationError("Date de naissance : âge hors limites.")
         return d
 

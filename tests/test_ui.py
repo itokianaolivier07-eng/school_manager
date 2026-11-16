@@ -5,8 +5,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import (QApplication, QComboBox, QDialogButtonBox, QDoubleSpinBox, QLineEdit,
-                             QMessageBox, QTableWidget, QToolButton)
+from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDateEdit, QDialogButtonBox,
+                             QDoubleSpinBox, QLineEdit, QTimeEdit,
+                             QGridLayout, QMessageBox, QScrollArea, QTableWidget, QToolButton, QWidget)
 
 from app.core import school
 from app.ui.forms import Field, FormDialog
@@ -17,7 +18,7 @@ from app.ui.table_model import RowsModel
 from app.ui.theme import PALETTE, apply_theme
 from app.ui.salaries_view import SalaryBaseDialog, SalariesView
 from app.ui.utils import ask_confirmation, handle_error
-from app.ui.views import classes_view, students_view
+from app.ui.views import attendance_view, classes_view, students_view
 from tests.conftest import make_env
 
 
@@ -148,6 +149,42 @@ def test_number_field_uses_configured_precision(qapp):
     assert isinstance(amount, QDoubleSpinBox)
     assert amount.decimals() == 0
     assert amount.singleStep() == 1000
+    assert dialog.objectName() == "appDialog"
+    assert dialog.findChild(QWidget, "formContent") is not None
+    assert dialog.findChild(QScrollArea, "formScroll") is not None
+    dialog.close()
+
+
+def test_student_form_uses_two_columns(qapp):
+    ctx, services = make_env()
+    view = students_view(services, ctx)
+    dialog = view.dialog_factory("Ajouter : élève", view.fields, {}, view)
+
+    assert isinstance(dialog.form, QGridLayout)
+    assert dialog.form.columnCount() == 2
+    assert dialog.form.rowCount() == (len(view.fields) + 1) // 2
+    assert set(dialog.values()) == {field.name for field in view.fields}
+    dialog.close()
+
+
+def test_attendance_form_uses_date_and_time_pickers(qapp):
+    ctx, services = make_env()
+    view = attendance_view(services, ctx)
+    dialog = view.dialog_factory("Pointage", view.fields, {}, view)
+
+    date_field = dialog.widgets["attendance_date"]
+    arrival = dialog.widgets["arrival_time"]
+    assert isinstance(date_field, QDateEdit)
+    assert date_field.calendarPopup()
+    assert isinstance(arrival, QTimeEdit)
+    assert dialog.time_enabled["arrival_time"].text() == "Renseigner"
+    assert dialog.values()["arrival_time"] is None
+
+    dialog.time_enabled["arrival_time"].setChecked(True)
+    arrival.setTime(arrival.time().fromString("08:30", "HH:mm"))
+    assert dialog.values()["arrival_time"] == "08:30"
+    dialog.time_enabled["arrival_time"].setChecked(False)
+    assert dialog.values()["arrival_time"] is None
     dialog.close()
 
 

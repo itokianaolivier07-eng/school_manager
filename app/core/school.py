@@ -59,6 +59,7 @@ LEVEL_AGE_RANGES = {
     "6è": (11, 12), "5è": (12, 13), "4è": (13, 14), "3è": (14, 15),
 }
 MIN_AGE, MAX_AGE = 1, 19
+MIN_AGE_MONTHS = 4
 DEFAULT_CAPACITY = 45
 
 
