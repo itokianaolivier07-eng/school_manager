@@ -12,7 +12,7 @@ from app.repositories.base import used_school_years
 from app.repositories.finance_repos import (ExpenseRepository, PaymentRepository,
                                             TuitionFeeRepository)
 from app.services.audit import log_event
-from app.services.base import CrudService, Page
+from app.services.base import CrudService, Page, normalize_pagination
 from app.services.student_service import csv_safe
 
 
@@ -71,8 +71,11 @@ class PaymentService(CrudService):
     def history_page(self, search="", sort=None, desc=None, page=0, size=None,
                     school_year=None, class_id=None):
         self.ctx.session.require(self.read_perm)
-        size = config.PAGE_SIZE if size is None else int(size)
-        page = max(0, int(page))
+        page, size = normalize_pagination(page, size)
+        if school_year is not None:
+            school_year = V.school_year({"school_year": school_year}, "school_year")
+        if class_id is not None:
+            class_id = V.integer({"class_id": class_id}, "class_id", "Classe", minimum=1)
         desc = self.default_desc if desc is None else desc
         rows = self.repo.page_filtered(
             search, sort, desc, size, page * size, school_year, class_id)
@@ -364,8 +367,7 @@ class PaymentService(CrudService):
 
     def arrears_page(self, class_id=None, school_year=None, month=None, today=None,
                      page=0, size=config.PAGE_SIZE):
-        page = max(0, int(page))
-        size = max(1, int(size))
+        page, size = normalize_pagination(page, size)
         unique_students = set()
         total_balance = 0
         total = 0

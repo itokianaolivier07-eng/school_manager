@@ -5,7 +5,20 @@ from dataclasses import dataclass, field
 
 from app import config
 from app.core.exceptions import DuplicateError, NotFoundError, ValidationError
+from app.core import validators as V
 from app.services.audit import clean_detail, log_event
+
+MAX_PAGE_SIZE = 1000
+
+
+def normalize_pagination(page, size=None, *, default_size=config.PAGE_SIZE):
+    page = V.integer({"page": page}, "page", "Page", required=True, minimum=0)
+    size = default_size if size is None else size
+    size = V.integer({"size": size}, "size", "Taille de page", required=True, minimum=1,
+                     maximum=MAX_PAGE_SIZE)
+    if page > ((2**63 - 1) // size):
+        raise ValidationError("Page hors limites.")
+    return page, size
 
 
 @dataclass
@@ -56,7 +69,7 @@ class CrudService:
 
     def page(self, search="", sort=None, desc=None, page=0, size=config.PAGE_SIZE) -> Page:
         self.ctx.session.require(self.read_perm)
-        page = max(0, int(page))
+        page, size = normalize_pagination(page, size)
         desc = self.default_desc if desc is None else desc
         rows = self.repo.page(search, sort, desc, size, page * size)
         return Page(rows, self.repo.count(search), page, size)

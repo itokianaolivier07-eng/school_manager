@@ -7,7 +7,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.repositories.base import used_school_years
 from app.repositories.repos import ClassRepository, TeacherRepository
 from app.services.audit import clean_detail, log_event
-from app.services.base import CrudService, Page, translate_integrity
+from app.services.base import CrudService, Page, normalize_pagination, translate_integrity
 
 
 class _OptionsMixin:
@@ -37,7 +37,7 @@ class TeacherService(_OptionsMixin, CrudService):
 
     def page(self, search="", sort=None, desc=None, page=0, size=100):
         self.ctx.session.require(self.read_perm)
-        page = max(0, int(page))
+        page, size = normalize_pagination(page, size)
         desc = self.default_desc if desc is None else desc
         rows = self.repo.page_for_year(
             self.school_year, search, sort, desc, size, page * size)
@@ -137,7 +137,7 @@ class ClassService(_OptionsMixin, CrudService):
 
     def page_for_year(self, school_year, search="", sort=None, desc=None, page=0, size=100):
         self.ctx.session.require(self.read_perm)
-        page = max(0, int(page))
+        page, size = normalize_pagination(page, size)
         desc = self.default_desc if desc is None else desc
         rows = self.repo.page_for_year(school_year, search, sort, desc, size, page * size)
         total = self.repo.count_for_year(school_year, search)

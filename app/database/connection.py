@@ -60,7 +60,8 @@ class Database:
             yield self.conn
             self.conn.execute("COMMIT")
         except BaseException:
-            self.conn.execute("ROLLBACK")
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK")
             raise
         finally:
             self._depth = 0

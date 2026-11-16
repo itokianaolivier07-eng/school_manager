@@ -143,6 +143,26 @@ def test_validation_rejects_bad_input(env):
             svc.students.create(bad)
 
 
+def test_pagination_rejects_invalid_or_unbounded_sizes(env):
+    _, svc = env
+    for page, size in ((0, 0), (0, -1), (0, 1001), (-1, 100), ("invalid", 100),
+                       (None, 100)):
+        with pytest.raises(ValidationError):
+            svc.students.page(page=page, size=size)
+    with pytest.raises(ValidationError):
+        svc.expenses.page(page=0, size=0)
+    with pytest.raises(ValidationError):
+        svc.payments.history_page(class_id="1; DROP TABLE students")
+
+
+def test_transaction_preserves_original_error_if_transaction_was_closed(env):
+    ctx, _ = env
+    with pytest.raises(RuntimeError, match="original failure"):
+        with ctx.db.transaction():
+            ctx.db.execute("COMMIT")
+            raise RuntimeError("original failure")
+
+
 def test_class_without_level_and_optional_parent_names(env):
     _, svc = env
     class_id = svc.classes.create({"name": "Classe A", "school_year": "2026-2027"})
@@ -864,6 +884,26 @@ def test_backups_are_private_and_use_unique_names(env, tmp_path, monkeypatch):
 
     assert first != second
     assert stat.S_IMODE(os.stat(first).st_mode) == 0o600
+
+
+def test_backup_failure_does_not_leave_a_partial_pair(env, tmp_path, monkeypatch):
+    _, svc = env
+    monkeypatch.setattr(config, "BACKUP_DIR", tmp_path)
+    original_copy = svc.backup._copy
+    calls = 0
+
+    def fail_on_accounts(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("accounts backup failed")
+        original_copy(source, destination)
+
+    monkeypatch.setattr(svc.backup, "_copy", fail_on_accounts)
+    with pytest.raises(OSError, match="accounts backup failed"):
+        svc.backup.backup_before_migration()
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_recreated_username_does_not_break_school_mirror_or_history(env):

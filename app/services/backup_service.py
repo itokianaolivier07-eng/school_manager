@@ -2,12 +2,15 @@
 
 Sauvegarde la base de l'école active ET la base des comptes (accounts_*.db)."""
 import os
+import logging
 import sqlite3
 import time
 from datetime import datetime
 
 from app import config
 from app.core.exceptions import AppError
+
+log = logging.getLogger(__name__)
 
 
 class BackupService:
@@ -40,12 +43,28 @@ class BackupService:
         config.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         stamp = f"{datetime.now():%Y%m%d_%H%M%S_%f}"
         dest = config.BACKUP_DIR / f"school_{stamp}.db"
-        self._copy(self.ctx.db.conn, dest)
+        destinations = [dest]
         if self.ctx.accounts is not None:
-            self._copy(self.ctx.accounts.conn, config.BACKUP_DIR / f"accounts_{stamp}.db")
+            destinations.append(config.BACKUP_DIR / f"accounts_{stamp}.db")
+        try:
+            self._copy(self.ctx.db.conn, dest)
+            if self.ctx.accounts is not None:
+                self._copy(self.ctx.accounts.conn, destinations[1])
+        except BaseException:
+            for path in destinations:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    log.warning("Impossible de nettoyer une sauvegarde incomplète : %s",
+                                path, exc_info=True)
+            raise
         self._rotate("school_*.db")
         self._rotate("accounts_*.db")
         return str(dest)
+
+    def backup_before_migration(self) -> str:
+        """Conserve une copie cohérente des bases avant une mise à niveau du schéma."""
+        return self._run()
 
     def backup(self) -> str:
         self.ctx.session.require("backup.run")

@@ -14,7 +14,7 @@ from app.core.exceptions import AppError, NotFoundError, ValidationError
 from app.repositories.base import used_school_years
 from app.repositories.repos import StudentRepository
 from app.services.audit import clean_detail, log_event
-from app.services.base import CrudService, Page, translate_integrity
+from app.services.base import CrudService, Page, normalize_pagination, translate_integrity
 
 EXPORT_COLS = ("matricule", "last_name", "first_name", "birth_date", "gender", "tutor_name",
                "tutor_phone", "tutor_profession", "father_name", "father_phone", "father_profession",
@@ -67,7 +67,7 @@ class StudentService(CrudService):
 
     def page(self, search="", sort=None, desc=None, page=0, size=config.PAGE_SIZE):
         self.ctx.session.require(self.read_perm)
-        page = max(0, int(page))
+        page, size = normalize_pagination(page, size)
         desc = self.default_desc if desc is None else desc
         rows = self.repo.page_for_year(
             self.school_year, search, sort, desc, size, page * size)

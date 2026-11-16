@@ -14,7 +14,7 @@ from app.core.logging_setup import setup_logging
 from app.core.session import Session
 from app.database.accounts import migrate_accounts, mirror_users
 from app.database.connection import Database
-from app.database.schema import migrate
+from app.database.schema import MIGRATIONS, migrate
 from app.services import Services
 from app.services.backup_service import BackupService
 from app.services.auth_service import AuthService
@@ -68,9 +68,12 @@ def main() -> int:
             if db is not None:
                 db.close()
             db = Database(config.DB_PATH)
+            current_version = db.one("PRAGMA user_version")[0]
+            ctx = AppContext(db, session, accounts)
+            if 0 < current_version < MIGRATIONS[-1][0]:
+                BackupService(ctx).backup_before_migration()
             migrate(db)
             mirror_users(accounts, db)
-            ctx = AppContext(db, session, accounts)
             try:
                 BackupService(ctx).auto_backup()
             except Exception:
