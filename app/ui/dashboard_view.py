@@ -214,8 +214,13 @@ class DashboardView(QWidget):
         self._load_finance(reset=True)
 
     def _load_finance(self, reset=False):
+        school_year = self.year_cb.currentData()
+        if school_year is None:
+            self.finance = None
+            self._render_finance()
+            return
         try:
-            self.finance = self.services.dashboard.finance_series(self.year_cb.currentData())
+            self.finance = self.services.dashboard.finance_series(school_year)
         except Exception as e:
             return handle_error(self, e)
         if reset and self.finance:

@@ -39,6 +39,30 @@ def test_student_schema_and_legacy_contact_privacy(env):
     assert "email" not in svc.students.get(student_id)
     assert "phone" not in svc.students.get(student_id)
 
+    with pytest.raises(sqlite3.IntegrityError):
+        ctx.db.execute(
+            "UPDATE students SET tutor_profession=? WHERE id=?",
+            ("x" * 101, student_id))
+
+
+def test_school_year_options_come_only_from_classes(env):
+    ctx, svc = env
+    years = ("2025-2026", "2026-2027")
+    for year in years:
+        svc.classes.create({"name": f"Classe {year[:4]}", "school_year": year})
+    ctx.db.execute(
+        "INSERT INTO expenses (category, label, amount, expense_date) "
+        "VALUES ('loyer', 'Charge historique', 1000, '2028-01-01')")
+
+    assert svc.classes.school_year_options() == ["2026-2027", "2025-2026"]
+    assert svc.students.school_year_options() == ["2026-2027", "2025-2026"]
+    assert svc.teachers.school_year_options() == ["2026-2027", "2025-2026"]
+    assert svc.dashboard.finance_year_options() == ["2026-2027", "2025-2026"]
+    assert svc.classes.class_year_options() == [
+        ("Classe 2026 - 2026-2027", 2, "2026-2027"),
+        ("Classe 2025 - 2025-2026", 1, "2025-2026"),
+    ]
+
 
 def test_migration_from_existing_database_preserves_student_data():
     db = Database()

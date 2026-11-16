@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QSize, Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
                              QMenu, QSizePolicy, QStackedWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
@@ -9,9 +9,7 @@ from app.ui import views
 from app.ui.dashboard_view import DashboardView
 from app.ui.dialogs import ChangePasswordDialog
 from app.ui.fees_view import FeesView
-from app.ui.icons import icon_moon, icon_sun
 from app.ui.sidebar import Sidebar
-from app.ui import theme
 from app.ui.toast import show_toast
 from app.ui.utils import handle_error
 
@@ -37,14 +35,6 @@ class MainWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.top_toolbar.addWidget(spacer)
-
-        self.theme_btn = QToolButton()
-        self.theme_btn.setObjectName("themeToggleBtn")
-        self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.theme_btn.setIconSize(QSize(20, 20))
-        self.theme_btn.clicked.connect(self.toggle_theme)
-        self._update_theme_button()
-        self.top_toolbar.addWidget(self.theme_btn)
 
         pages = [
             ("Tableau de bord", "Tableau de bord", "dashboard.read", lambda: DashboardView(services, ctx)),
@@ -129,22 +119,6 @@ class MainWindow(QMainWindow):
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         button.setMenu(menu)
         self.top_toolbar.addWidget(button)
-
-    def _update_theme_button(self):
-        palette = theme.current_palette()
-        if theme.current_mode() == "dark":
-            self.theme_btn.setIcon(icon_sun(palette["secondary"]))
-            self.theme_btn.setToolTip("Passer au mode clair")
-        else:
-            self.theme_btn.setIcon(icon_moon(palette["secondary"]))
-            self.theme_btn.setToolTip("Passer au mode sombre")
-
-    def toggle_theme(self):
-        new_mode = "dark" if theme.current_mode() == "light" else "light"
-        theme.set_theme_mode(new_mode)
-        theme.apply_theme(QApplication.instance(), new_mode)
-        self._update_theme_button()
-        self.sidebar.apply_theme()
 
     def _on_page(self, i):
         self.sidebar.set_current(i)

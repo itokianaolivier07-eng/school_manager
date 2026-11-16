@@ -1,11 +1,7 @@
-"""Feuille de style globale - design moderne avec mode clair et sombre."""
-import json
+"""Feuille de style globale en mode clair."""
 import re
 
-from app import config
-
-PALETTES = {
-    "light": {
+PALETTE = {
         "main": "#f5f6fb", "card": "#ffffff", "sidebar": "#ffffff",
         "usercard": "#f8fafc", "hover": "#f1f5f9", "active": "#eef2ff",
         "toolbar": "#ffffff", "border": "#e2e8f0", "border_soft": "#eef0f6",
@@ -31,34 +27,6 @@ PALETTES = {
         "status_partial_bg": "#fef3c7", "status_partial_text": "#92400e",
         "status_due_bg": "#fee2e2", "status_due_text": "#991b1b",
         "status_free_bg": "#f1f5f9", "status_free_text": "#475569",
-    },
-    "dark": {
-        "main": "#0f172a", "card": "#1e293b", "sidebar": "#1e293b",
-        "usercard": "#0f172a", "hover": "#334155", "active": "#312e81",
-        "toolbar": "#1e293b", "border": "#334155", "border_soft": "#334155",
-        "text": "#f1f5f9", "secondary": "#cbd5e1", "muted": "#94a3b8",
-        "faint": "#64748b", "nav": "#cbd5e1", "nav_active": "#c7d2fe",
-        "accent": "#6366f1", "accent_hover": "#4f46e5", "accent_pressed": "#4338ca",
-        "accent_light": "#312e81", "accent_lighter": "#3730a3",
-        "accent_border": "#4338ca", "title": "#f1f5f9",
-        "danger": "#fca5a5", "danger_bg": "#450a0a", "danger_border": "#7f1d1d",
-        "logout_hover": "#7f1d1d", "input_border": "#475569",
-        "selection": "#4338ca", "selection_text": "#f1f5f9",
-        "table_alt": "#1e293b", "table_sel": "#312e81",
-        "header": "#312e81", "header_text": "#c7d2fe", "scrollbar": "#475569",
-        "row_view_bg": "#312e81", "row_view_text": "#c7d2fe",
-        "row_view_border": "#4338ca", "row_view_hover": "#4338ca",
-        "row_edit_bg": "#052e16", "row_edit_text": "#6ee7b7",
-        "row_edit_border": "#064e3b", "row_edit_hover": "#064e3b",
-        "on_accent": "#ffffff", "nav_icon_idle": "#cbd5e1",
-        "nav_icon_active": "#c7d2fe",
-        "positive": "#6ee7b7", "negative": "#fca5a5", "warning": "#fbbf24",
-        "series_1": "#818cf8", "series_2": "#fb923c",
-        "status_paid_bg": "#064e3b", "status_paid_text": "#6ee7b7",
-        "status_partial_bg": "#78350f", "status_partial_text": "#fcd34d",
-        "status_due_bg": "#7f1d1d", "status_due_text": "#fca5a5",
-        "status_free_bg": "#334155", "status_free_text": "#cbd5e1",
-    },
 }
 
 _TEMPLATE = """
@@ -124,12 +92,6 @@ QPushButton#logoutBtn {
     padding: 4px;
 }
 QPushButton#logoutBtn:hover { background: %(logout_hover)s; }
-QToolButton#themeToggleBtn {
-    background: transparent; border: 1px solid %(border)s; border-radius: 8px;
-    padding: 5px;
-}
-QToolButton#themeToggleBtn:hover { background: %(hover)s; }
-
 QPushButton { background: %(accent)s; color: %(on_accent)s; border: none; border-radius: 9px;
               padding: 8px 18px; font-weight: 600; }
 QPushButton:hover { background: %(accent_hover)s; }
@@ -214,61 +176,17 @@ QScrollBar::handle:vertical { background: %(scrollbar)s; border-radius: 5px; min
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
 """
 
-_current_mode = "light"
-_style_initialized = False
-
-
-def _theme_file():
-    # Préférence globale de l'utilisateur, partagée entre les écoles.
-    return config.ROOT_DIR / "theme.json"
-
-
-def get_theme_mode() -> str:
-    try:
-        with open(_theme_file(), "r", encoding="utf-8") as fh:
-            mode = json.load(fh).get("mode", "light")
-    except (OSError, ValueError):
-        mode = "light"
-    return mode if mode in PALETTES else "light"
-
-
-def set_theme_mode(mode: str) -> None:
-    if mode not in PALETTES:
-        return
-    global _current_mode
-    _current_mode = mode
-    try:
-        config.ensure_dirs()
-        with open(_theme_file(), "w", encoding="utf-8") as fh:
-            json.dump({"mode": mode}, fh)
-    except OSError:
-        pass
-
-
-def current_mode() -> str:
-    return _current_mode
-
-
 def current_palette() -> dict:
-    return PALETTES[_current_mode]
+    return PALETTE
 
 
 _PLACEHOLDER = re.compile(r"%\((\w+)\)s")
 
 
-def build_stylesheet(mode: str) -> str:
-    palette = PALETTES[mode]
-    return _PLACEHOLDER.sub(lambda match: palette[match.group(1)], _TEMPLATE)
+def build_stylesheet() -> str:
+    return _PLACEHOLDER.sub(lambda match: PALETTE[match.group(1)], _TEMPLATE)
 
 
-def apply_theme(app, mode: str | None = None) -> None:
-    global _current_mode, _style_initialized
-    if mode is None:
-        mode = get_theme_mode()
-    if mode not in PALETTES:
-        mode = "light"
-    _current_mode = mode
-    if not _style_initialized:
-        app.setStyle("Fusion")
-        _style_initialized = True
-    app.setStyleSheet(build_stylesheet(mode))
+def apply_theme(app) -> None:
+    app.setStyle("Fusion")
+    app.setStyleSheet(build_stylesheet())

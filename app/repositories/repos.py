@@ -177,6 +177,11 @@ class ClassRepository(BaseRepository):
         row = self.db.one("SELECT school_year FROM classes WHERE id=?", (class_id,))
         return row["school_year"] if row else None
 
+    def class_year_options(self):
+        return [dict(row) for row in self.db.all(
+            "SELECT id, name, school_year FROM classes "
+            "ORDER BY school_year DESC, name COLLATE NOCASE")]
+
 
 
 class AttendanceRepository(BaseRepository):

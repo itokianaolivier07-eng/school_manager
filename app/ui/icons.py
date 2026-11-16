@@ -131,33 +131,6 @@ def icon_logout(color="#1e293b"):
     return _to_icon(pix, p)
 
 
-def icon_sun(color="#1e293b"):
-    pix, p = _canvas()
-    _stroke(p, color)
-    p.drawEllipse(QPointF(11, 11), 4.5, 4.5)
-    for angle in range(0, 360, 45):
-        import math
-        rad = math.radians(angle)
-        x1 = 11 + math.cos(rad) * 7
-        y1 = 11 + math.sin(rad) * 7
-        x2 = 11 + math.cos(rad) * 9.5
-        y2 = 11 + math.sin(rad) * 9.5
-        p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
-    return _to_icon(pix, p)
-
-
-def icon_moon(color="#1e293b"):
-    pix, p = _canvas()
-    _stroke(p, color)
-    path = QPainterPath()
-    path.moveTo(15, 5)
-    path.cubicTo(9, 5, 5, 9.5, 6, 15)
-    path.cubicTo(10, 17.5, 16, 16, 17, 11)
-    path.cubicTo(12, 11, 11, 6, 15, 5)
-    p.drawPath(path)
-    return _to_icon(pix, p)
-
-
 def icon_logo():
     """Logo de l'application - équerre dans un hexagone arrondi."""
     pix, p = _canvas(36)

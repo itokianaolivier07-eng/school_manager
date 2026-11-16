@@ -14,7 +14,7 @@ from app.ui.dialogs import LoginDialog
 from app.ui.fees_view import FeesView
 from app.ui.main_window import MainWindow
 from app.ui.table_model import RowsModel
-from app.ui.theme import apply_theme
+from app.ui.theme import PALETTE, apply_theme
 from app.ui.salaries_view import SalaryBaseDialog, SalariesView
 from app.ui.utils import ask_confirmation, handle_error
 from app.ui.views import classes_view, students_view
@@ -41,6 +41,7 @@ def test_main_window_builds_all_authorized_pages(qapp):
     assert window.menuWidget() is None
     toolbar_menus = [button for button in window.top_toolbar.findChildren(QToolButton) if button.text()]
     assert [button.text() for button in toolbar_menus] == ["Compte", "Données"]
+    assert not window.findChild(QToolButton, "themeToggleBtn")
     assert [action.text() for action in toolbar_menus[0].menu().actions()] == [
         "Changer le mot de passe…", "Se déconnecter"]
     window.close()
@@ -48,6 +49,7 @@ def test_main_window_builds_all_authorized_pages(qapp):
 
 def test_dashboard_tracks_monthly_profit_and_charges_page(qapp):
     ctx, services = make_env()
+    services.classes.create({"name": "Classe tableau", "school_year": school.current_school_year()})
     start = school.current_school_year()[:4]
     ctx.db.execute("INSERT INTO expenses (category, label, amount, expense_date) "
                    "VALUES ('loyer', 'Loyer', 300000, ?)", (f"{start}-09-05",))
@@ -77,7 +79,7 @@ def test_mutations_refresh_related_views_and_annual_filters(qapp):
     students_filter = window.findChild(QComboBox, "studentsSchoolYearFilter")
     assert classes_filter.findText(year) >= 0
     assert students_filter.findText(year) >= 0
-    assert class_view.model.rowCount() == 0
+    assert class_view.model.rowCount() == 1
 
     classes_filter.setCurrentText(year)
     assert class_view.model.rowCount() == 1
@@ -238,6 +240,8 @@ def test_input_and_table_text_are_dark(qapp):
     assert line.palette().color(line.foregroundRole()).name() == "#1e293b"
     assert combo.palette().color(combo.foregroundRole()).name() == "#1e293b"
     assert table.palette().color(table.foregroundRole()).name() == "#1e293b"
+    assert PALETTE["main"] == "#f5f6fb"
+    assert "#f5f6fb" in qapp.styleSheet()
 
 
 def test_class_screen_uses_employee_and_has_no_level(qapp):

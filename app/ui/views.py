@@ -107,26 +107,21 @@ def students_view(sv, ctx, on_change=None):
         student_id = view._row_id()
         if student_id is None:
             return
-        available_years = [y for y in sv.classes.years_with_classes()
-                           if y != sv.students.school_year]
-        if not available_years:
+        classes = [item for item in sv.classes.class_year_options()
+                   if item[2] != sv.students.school_year]
+        if not classes:
             QMessageBox.information(view, "Inscription", "Aucune autre année scolaire n'a de classe.")
             return
-        year, ok = QInputDialog.getItem(view, "Nouvelle inscription", "Année scolaire :",
-                                        available_years, 0, False)
+        label, ok = QInputDialog.getItem(
+            view, "Nouvelle inscription", "Classe de destination :",
+            [item[0] for item in classes], 0, False)
         if not ok:
             return
-        class_options = sv.classes.repo.options_for_year(year)
-        if not class_options:
-            QMessageBox.information(view, "Inscription", "Aucune classe n'existe pour cette année.")
+        selected = next((item for item in classes if item[0] == label), None)
+        if selected is None:
             return
-        labels = [label for label, _ in class_options]
-        label, ok = QInputDialog.getItem(view, "Nouvelle inscription", "Classe :",
-                                         labels, 0, False)
-        if not ok:
-            return
-        sv.students.enroll_existing(
-            student_id, dict(class_options)[label], year)
+        _, class_id, school_year = selected
+        sv.students.enroll_existing(student_id, class_id, school_year)
         view.notify_changed()
 
     def unenroll_selected(view):
@@ -190,15 +185,19 @@ def teachers_view(sv, ctx, on_change=None):
         employee_id = view._row_id()
         if employee_id is None:
             return
-        available_years = [y for y in sv.classes.school_year_options()
-                           if y != sv.teachers.school_year]
-        if not available_years:
-            QMessageBox.information(view, "Affectation", "Aucune autre année scolaire n'existe.")
+        classes = [item for item in sv.classes.class_year_options()
+                   if item[2] != sv.teachers.school_year]
+        if not classes:
+            QMessageBox.information(view, "Affectation", "Aucune classe d'une autre année scolaire.")
             return
-        year, ok = QInputDialog.getItem(view, "Affecter l'employé", "Année scolaire :",
-                                        available_years, 0, False)
+        label, ok = QInputDialog.getItem(
+            view, "Affecter l'employé", "Classe de l'année souhaitée :",
+            [item[0] for item in classes], 0, False)
         if ok:
-            sv.teachers.assign_year(employee_id, year)
+            selected = next((item for item in classes if item[0] == label), None)
+            if selected is None:
+                return
+            sv.teachers.assign_year(employee_id, selected[2])
             view.notify_changed()
 
     def remove_selected_assignment(view):

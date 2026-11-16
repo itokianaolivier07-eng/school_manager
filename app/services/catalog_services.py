@@ -122,6 +122,13 @@ class ClassService(_OptionsMixin, CrudService):
         """Années disposant réellement de classes : sert aux choix d'inscription/affectation."""
         return self.repo.years()
 
+    def class_year_options(self):
+        """Classes et années associées, pour éviter de demander une année séparément."""
+        return [
+            (f"{row['name']} - {row['school_year']}", row["id"], row["school_year"])
+            for row in self.repo.class_year_options()
+        ]
+
     def select_school_year(self, school_year):
         self.school_year = school_year or school.current_school_year()
 

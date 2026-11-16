@@ -134,9 +134,8 @@ class Sidebar(QFrame):
         row.setSpacing(10)
 
         avatar = QLabel()
-        self._avatar_initials = (self.user.full_name.strip() or "?")[:2].upper()
-        avatar.setPixmap(_avatar_pixmap(self._avatar_initials, 40))
-        self._avatar_label = avatar
+        initials = (self.user.full_name.strip() or "?")[:2].upper()
+        avatar.setPixmap(_avatar_pixmap(initials, 40))
         row.addWidget(avatar)
 
         text_col = QVBoxLayout()
@@ -157,16 +156,8 @@ class Sidebar(QFrame):
         logout.setCursor(Qt.CursorShape.PointingHandCursor)
         logout.setToolTip("Se déconnecter")
         logout.clicked.connect(self.logout_requested.emit)
-        self._logout_btn = logout
         row.addWidget(logout)
         return card
-
-    def apply_theme(self):
-        palette = theme.current_palette()
-        self._avatar_label.setPixmap(_avatar_pixmap(self._avatar_initials, 40))
-        self._logout_btn.setIcon(icon_logout(palette["muted"]))
-        for button in self._buttons:
-            button.set_active(button.isChecked())
 
     def set_current(self, index: int):
         for pos, button in enumerate(self._buttons):
